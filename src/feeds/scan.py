@@ -7,13 +7,15 @@ Reads data/cameras.json, connects to each camera briefly, and records:
   - how long the first frame took to arrive
 
 Results go to data/camera_quality.json and data/camera_quality.csv, and the
-best cameras are printed as a ranking.
+best cameras are printed as a ranking. New results are merged with earlier
+scans, so you can scan one country or area at a time.
 
 Examples:
     python -m src.feeds.scan --region new-taipei     # New Taipei area only
     python -m src.feeds.scan --category traffic      # all road cameras
     python -m src.feeds.scan --source tainan --limit 50
     python -m src.feeds.scan --sample 200            # random 200 from everything
+    python -m src.feeds.scan --country USA --sample 300   # 300 random US cameras
     python -m src.feeds.scan                         # every camera (slow)
 
 Each probe takes a few seconds, but several run in parallel. The scanner only
@@ -103,6 +105,7 @@ def _result(cam: dict, **fields) -> dict:
         "id": cam["id"],
         "source": cam["source"],
         "category": cam.get("category"),
+        "country": cam.get("country") or "TWN",
         "road": cam.get("road"),
         "description": cam.get("description"),
         "lat": cam.get("lat"),
@@ -189,6 +192,28 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
     }
 
 
+_RESOLUTION_RE = re.compile(r"RESOLUTION=(\d+)x(\d+)", re.IGNORECASE)
+_FRAMERATE_RE = re.compile(r"FRAME-RATE=([\d.]+)", re.IGNORECASE)
+
+
+def _probe_hls(text: str, started: float) -> dict:
+    """Read an HLS playlist. Master playlists list each quality's resolution."""
+    if not text.lstrip().startswith("#EXTM3U"):
+        return {"status": "unsupported", "error": "not a valid HLS playlist"}
+    sizes = [(int(w), int(h)) for w, h in _RESOLUTION_RE.findall(text)]
+    rates = [float(r) for r in _FRAMERATE_RE.findall(text)]
+    result = {"status": "online", "kind": "hls",
+              "first_frame_s": round(time.monotonic() - started, 2)}
+    if sizes:
+        w, h = max(sizes, key=lambda s: s[0] * s[1])
+        result.update(width=w, height=h)
+    else:
+        result["error"] = "HLS playlist lists no resolution; size unknown"
+    if rates:
+        result["fps"] = round(max(rates), 2)
+    return result
+
+
 _EMBED_RE = re.compile(
     r"""(?:src|data-src|href)\s*=\s*["']([^"']+?(?:mjpg|mjpeg|\.jpg|\.jpeg|\.png|cgi|\.m3u8|snapshot|video|stream)[^"']*)["']""",
     re.IGNORECASE,
@@ -226,8 +251,8 @@ def probe_url(url: str, depth: int = 0) -> dict:
             }
 
         if "mpegurl" in ctype or url.lower().split("?")[0].endswith(".m3u8"):
-            return {"status": "online", "kind": "hls",
-                    "error": "HLS video; needs OpenCV/ffmpeg to measure"}
+            text = resp.raw.read(200_000, decode_content=True).decode("utf-8", "ignore")
+            return _probe_hls(text, started)
 
         if "html" in ctype and depth == 0:
             # A web page that wraps the camera: look for the real feed inside it.
@@ -288,6 +313,8 @@ def select(cameras: list[dict], args) -> list[dict]:
     out = [c for c in cameras if c.get("url_type") != "viewer"]
     if viewers:
         print(f"Skipping {len(viewers)} view-only cameras (open those in a browser).")
+    if args.country:
+        out = [c for c in out if (c.get("country") or "TWN") in args.country]
     if args.region:
         out = [c for c in out if _in_region(c, args.region)]
     if args.source:
@@ -301,13 +328,31 @@ def select(cameras: list[dict], args) -> list[dict]:
     return out
 
 
-def save(results: list[dict]) -> None:
+def save(results: list[dict]) -> list[dict]:
+    """Merge new results into earlier ones, so scanning one country or region
+    doesn't erase what you scanned before. Returns the full merged list."""
+    merged: dict[str, dict] = {}
+    if OUT_JSON.exists():
+        try:
+            for r in json.loads(OUT_JSON.read_text(encoding="utf-8")):
+                merged[r["id"]] = r
+        except (ValueError, KeyError):
+            pass
+    for r in results:
+        merged[r["id"]] = r
+    keys = list(results[0].keys())
+    results = sorted(merged.values(), key=lambda r: r.get("score") or 0, reverse=True)
+    for r in results:  # older rows may miss newer fields
+        for k in keys:
+            r.setdefault(k, None)
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     with OUT_CSV.open("w", newline="", encoding="utf-8-sig") as f:  # utf-8-sig opens cleanly in Excel
-        writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
+        fields = list(dict.fromkeys(k for r in results for k in r))
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
+    return results
 
 
 def report(results: list[dict], top: int) -> None:
@@ -343,7 +388,8 @@ def report(results: list[dict], top: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="Check the quality of public cameras.")
-    p.add_argument("--region", choices=sorted(REGIONS), help="only cameras in this area")
+    p.add_argument("--country", nargs="+", help="only these countries, e.g. TWN USA")
+    p.add_argument("--region", choices=sorted(REGIONS), help="only cameras in this Taiwan area")
     p.add_argument("--source", nargs="+", help="only these sources, e.g. freeway tainan")
     p.add_argument("--category", choices=["traffic", "water"])
     p.add_argument("--sample", type=int, help="random sample of N cameras")
@@ -371,7 +417,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"  {n}/{len(chosen)} done, {online} online, {time.monotonic() - started:.0f}s")
 
     results.sort(key=lambda r: r["score"], reverse=True)
-    save(results)
+    total = save(results)
+    print(f"Saved. {len(total):,} cameras in {OUT_JSON} (this scan plus earlier ones).")
     report(results, args.top)
 
 

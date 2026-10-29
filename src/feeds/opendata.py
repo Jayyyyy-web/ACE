@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 import requests
 
+from src.feeds.formats import tw_region, with_format
 from src.feeds.http import session as _session
 
 METADATA_URL = "https://data.gov.tw/api/v2/rest/dataset/{nid}"
@@ -52,19 +53,21 @@ class Source:
     viewer_url: str = ""     # e.g. "https://.../ShowFrame4CCTV/{id}"
     viewer_id_field: str = ""
     url_type: str = ""       # force a link type when the URL is misleading
+    region: str = ""         # city/county when the whole source is in one place
 
 
 SOURCES = [
     # Road traffic
     Source("freeway", 37665, "traffic", "Freeway Bureau (national freeways)", "XML"),
-    Source("keelung", 59458, "traffic", "Keelung City"),
-    Source("chiayi-county", 122133, "traffic", "Chiayi County"),
-    Source("chiayi-city", 173813, "traffic", "Chiayi City"),
-    Source("tainan", 166140, "traffic", "Tainan City"),
+    Source("keelung", 59458, "traffic", "Keelung City", region="基隆市"),
+    Source("chiayi-county", 122133, "traffic", "Chiayi County", region="嘉義縣"),
+    Source("chiayi-city", 173813, "traffic", "Chiayi City", region="嘉義市"),
+    Source("tainan", 166140, "traffic", "Tainan City", region="臺南市"),
     Source(
         "new-taipei", 158108, "traffic", "New Taipei City (view-only, official viewer)",
         viewer_url="https://atis.ntpc.gov.tw/ATIS/ShowFrame4CCTV/{id}",
         viewer_id_field="areacode",
+        region="新北市",
     ),
     Source("taipei-mrt-works-1", 138749, "traffic", "Taipei MRT construction sites (Wanda line, 2nd office)"),
     Source("taipei-mrt-works-2", 138750, "traffic", "Taipei MRT construction sites (Xinyi east extension)"),
@@ -86,6 +89,8 @@ FIELD_CANDIDATES = {
     "lon": ["PositionLon", "longitude_4326", "經度", "wgsx", "lon", "lng", "longitude"],
     "road": ["RoadName", "rivername", "basinname"],
     "direction": ["RoadDirection"],
+    "region": ["縣市", "countiesandcitieswherethemonitoringpointsarelocated"],
+    "county": ["行政區", "district", "administrativedistrictwherethemonitoringpointislocated"],
     "description": [
         "SurveillanceDescription", "Location", "cameraname", "stationname",
         "攝影機名稱", "鏡頭位置", "架設或拍攝地點", "address",
@@ -266,10 +271,13 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
     district = record.get("district") or record.get("行政區")
     if district and description and district not in description:
         description = f"{district} {description}"
-    return {
+    return with_format({
         "id": f"{source.key}:{raw_id}",
         "source": source.key,
         "category": source.category,
+        "country": "TWN",
+        "region": tw_region(source.region or _pick(record, "region")),
+        "county": _pick(record, "county"),
         "road": _pick(record, "road"),
         "direction": _pick(record, "direction"),
         "description": description,
@@ -278,7 +286,7 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
         "stream_url": url,
         "url_type": "viewer" if source.viewer_url else (source.url_type or _url_type(url)),
         "refresh_rate": None,
-    }
+    })
 
 
 # --------------------------------------------------------------------------

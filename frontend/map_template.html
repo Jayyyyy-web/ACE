@@ -36,7 +36,7 @@
     border-radius: 6px; width: 32px; height: 32px; font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
   .v-close:hover { background: var(--panel-2); }
   .v-stage { flex: 1; min-height: 0; position: relative; background: #000; display: grid; place-items: center; overflow: hidden; }
-  .v-stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .v-stage img, .v-stage video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   .v-stage iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: #000; }
   .v-msg { color: var(--muted); text-align: center; padding: 24px; max-width: 420px; }
   .v-foot { padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel);
@@ -64,6 +64,8 @@
   .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
+  .zoom { margin-left: 8px; background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+  .zoom:hover { text-decoration: underline; }
   .best { list-style: none; padding: 0; margin: 0; }
   .best li { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; }
   .best li:hover { background: var(--panel-2); }
@@ -97,7 +99,10 @@
     </header>
     <div class="scroll">
       <h2>Search</h2>
-      <input type="search" id="q" placeholder="Road, place or ID (e.g. 國道1號, 蘆洲)">
+      <input type="search" id="q" placeholder="Road, place, state or ID (e.g. 國道1號, 蘆洲, I-580)">
+
+      <h2>Countries</h2>
+      <div id="countries"></div>
 
       <h2>Picture quality</h2>
       <select id="minRes">
@@ -147,6 +152,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
 <script>
 const CAMERAS = __CAMERAS__;
 const GENERATED = __GENERATED__;
@@ -155,6 +161,7 @@ const DEFAULT_MIN_HEIGHT = __MIN_HEIGHT__;
 const TYPES = {
   stream: { label: "Live video", hex: "#4ea1ff" },
   image:  { label: "Refreshing still", hex: "#2ec4b6" },
+  hls:    { label: "Live video (HLS)", hex: "#ff6b9a" },
   page:   { label: "Web page", hex: "#f4a261" },
   viewer: { label: "City viewer", hex: "#b583ff" },
 };
@@ -211,10 +218,39 @@ let selectedRing = null;
 let visibleList = [];
 const stage = document.getElementById("vStage");
 
+let hls = null;
+let refreshTimer = null;
+
 function stopFeed() {
+  clearInterval(refreshTimer); refreshTimer = null;
+  if (hls) { hls.destroy(); hls = null; }
+  stage.querySelectorAll("video").forEach(v => { v.pause(); v.removeAttribute("src"); v.load(); });
   stage.querySelectorAll("img").forEach(i => i.removeAttribute("src"));
   stage.querySelectorAll("iframe").forEach(f => { f.src = "about:blank"; });
   stage.innerHTML = "";
+}
+
+const FAIL_MSG = `<div class="v-msg">Couldn't load this camera. It may be offline, or its server doesn't allow playback from other sites. Try “Open source” or another camera.</div>`;
+
+function playHls(c) {
+  const video = document.createElement("video");
+  Object.assign(video, { muted: true, autoplay: true, playsInline: true, controls: true });
+  stage.appendChild(video);
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({ lowLatencyMode: true, maxBufferLength: 10 });
+    hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { stopFeed(); stage.innerHTML = FAIL_MSG; } });
+    hls.loadSource(c.stream_url);
+    hls.attachMedia(video);
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = c.stream_url;  // Safari plays HLS natively
+    video.onerror = () => { stage.innerHTML = FAIL_MSG; };
+  } else {
+    stage.innerHTML = `<div class="v-msg">This browser can't play HLS video. Use “Open source”.</div>`;
+  }
+}
+
+function withCacheBuster(url) {
+  return url + (url.includes("?") ? "&" : "?") + "_ace=" + Date.now();
 }
 
 function fitFrame() {
@@ -243,15 +279,29 @@ function showFeed(c) {
     setTimeout(() => { fitFrame(); fr.src = c.stream_url; }, 220);
     return;
   }
-  if (c.q && c.q.kind === "hls") {
-    stage.innerHTML = `<div class="v-msg">This camera streams HLS video, which can't play here. Use “Open source”.</div>`;
+  if (c.url_type === "hls" || (c.q && c.q.kind === "hls")) {
+    playHls(c);
     return;
   }
+  const src = inner || c.stream_url;
   const img = document.createElement("img");
   img.alt = `Live view of ${title(c)}`;
-  img.onerror = () => { stage.innerHTML = `<div class="v-msg">Couldn't load this camera. It may be offline right now. Try “Open source” or another camera.</div>`; };
-  img.src = inner || c.stream_url;
+  let loadedOnce = false;
+  img.onload = () => { loadedOnce = true; };
+  img.onerror = () => {
+    // A refresh failed (some servers reject the cache-busting parameter):
+    // stop refreshing and keep showing the last good picture.
+    if (loadedOnce) { clearInterval(refreshTimer); refreshTimer = null; return; }
+    stage.innerHTML = FAIL_MSG;
+  };
+  img.src = src;
   stage.appendChild(img);
+  // Still images don't update on their own; fetch a fresh one on a timer.
+  const isStill = c.url_type === "image" || (c.q && c.q.kind === "image");
+  if (isStill) {
+    const every = Math.max(c.update_rate || 10000, 3000);
+    refreshTimer = setInterval(() => { img.src = withCacheBuster(src); }, every);
+  }
 }
 
 function openViewer(c) {
@@ -261,7 +311,8 @@ function openViewer(c) {
   document.getElementById("vSub").textContent = c.id;
   document.getElementById("vOpen").href = c.stream_url;
 
-  const tags = [c.source, (TYPES[c.url_type] || {}).label || c.url_type];
+  const place = [c.region && c.region !== "other" ? c.region : null, COUNTRY_NAMES[c.country] || c.country].filter(Boolean).join(", ");
+  const tags = [place, c.source, (TYPES[c.url_type] || {}).label || c.url_type];
   if (c.direction) tags.push(`dir ${c.direction}`);
   if (c.q && c.q.width) tags.push(`${c.q.width}×${c.q.height}`);
   if (c.q && c.q.fps != null) tags.push(`${c.q.fps} fps`);
@@ -307,12 +358,15 @@ document.addEventListener("keydown", e => {
 window.addEventListener("resize", fitFrame);
 
 // ---------- filters ----------
+const COUNTRY_NAMES = { TWN: "Taiwan", USA: "United States", SGP: "Singapore", HKG: "Hong Kong", FIN: "Finland" };
 const state = {
-  q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(),
+  q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), countries: new Set(),
   onlineOnly: false, minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
 };
 const sourceCounts = {};
 CAMERAS.forEach(c => { sourceCounts[c.source] = (sourceCounts[c.source] || 0) + 1; state.sources.add(c.source); });
+const countryCounts = {};
+CAMERAS.forEach(c => { countryCounts[c.country] = (countryCounts[c.country] || 0) + 1; state.countries.add(c.country); });
 
 function checkboxRow(container, key, label, dotStyle, count, onChange) {
   const row = document.createElement("label");
@@ -336,6 +390,23 @@ Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).forEach(([s, n]) =>
   checkboxRow(srcBox, s, s, "border:1px solid var(--line)", n, (key, on) => {
     on ? state.sources.add(key) : state.sources.delete(key); apply();
   }));
+
+// Countries: tick to show/hide, "zoom" to fly there.
+const countryBox = document.getElementById("countries");
+Object.entries(countryCounts).sort((a, b) => b[1] - a[1]).forEach(([code, n]) => {
+  const row = document.createElement("label");
+  row.className = "row";
+  row.innerHTML = `<input type="checkbox" checked> ${esc(COUNTRY_NAMES[code] || code)}<button class="zoom" type="button">zoom</button><span class="n">${n.toLocaleString()}</span>`;
+  row.querySelector("input").addEventListener("change", ev => {
+    ev.target.checked ? state.countries.add(code) : state.countries.delete(code); apply();
+  });
+  row.querySelector(".zoom").addEventListener("click", ev => {
+    ev.preventDefault();
+    const pts = CAMERAS.filter(c => c.country === code).map(c => [c.lat, c.lon]);
+    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+  });
+  countryBox.appendChild(row);
+});
 
 // Quality controls
 const minResEl = document.getElementById("minRes");
@@ -369,6 +440,7 @@ document.getElementById("q").addEventListener("input", e => {
 });
 
 function visible(c) {
+  if (!state.countries.has(c.country)) return false;
   if (!state.types.has(typeKey(c)) || !state.sources.has(c.source)) return false;
   if (state.onlineOnly && !(c.q && c.q.status === "online")) return false;
   if (state.minHeight > 0) {
@@ -376,7 +448,7 @@ function visible(c) {
     if (h == null ? !state.unmeasured : h < state.minHeight) return false;
   }
   if (state.q) {
-    const hay = `${c.id} ${c.road || ""} ${c.description || ""} ${c.source}`.toLowerCase();
+    const hay = `${c.id} ${c.road || ""} ${c.description || ""} ${c.source} ${c.region || ""}`.toLowerCase();
     if (!hay.includes(state.q)) return false;
   }
   return true;

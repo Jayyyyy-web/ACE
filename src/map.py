@@ -3,8 +3,14 @@
 Reads data/cameras.json (and data/camera_quality.json if you've run the
 scanner), and writes a single self-contained page to data/map.html.
 
-    python -m src.map            # build and open in your browser
-    python -m src.map --no-open  # build only
+    python -m src.map             # build, serve on http://localhost:8765, open browser
+    python -m src.map --no-serve  # build and open the file directly
+    python -m src.map --no-open   # build only
+
+Why serve it? Opened straight from a file, the page has no web address, and
+some camera servers (e.g. California's live video) refuse requests from
+pages without one. A tiny local server on your own computer fixes that.
+Press Ctrl+C to stop it.
 
 Clicking a pin opens the camera in a viewer that takes half the screen.
 By default only cameras measured at 720p or better are shown (needs a scan),
@@ -15,7 +21,10 @@ plus cameras whose size is unknown. Use the sidebar to change that, or
 from __future__ import annotations
 
 import argparse
+import functools
+import http.server
 import json
+import socketserver
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -27,8 +36,8 @@ TEMPLATE_PATH = ROOT / "frontend" / "map_template.html"
 OUTPUT_PATH = Path("data/map.html")
 
 QUALITY_FIELDS = ("status", "kind", "width", "height", "fps", "score", "probed_url")
-CAMERA_FIELDS = ("id", "source", "category", "road", "direction", "description",
-                 "lat", "lon", "stream_url", "url_type")
+CAMERA_FIELDS = ("id", "source", "category", "country", "region", "road", "direction",
+                 "description", "lat", "lon", "stream_url", "url_type", "format", "update_rate")
 
 
 def _embed(value) -> str:
@@ -52,6 +61,7 @@ def build(output: Path = OUTPUT_PATH, min_height: int = 720) -> tuple[Path, int,
         if cam.get("lat") is None or cam.get("lon") is None:
             continue
         rec = {k: cam.get(k) for k in CAMERA_FIELDS}
+        rec["country"] = rec.get("country") or "TWN"  # lists made before countries existed
         if cam["id"] in quality:
             rec["q"] = quality[cam["id"]]
         records.append(rec)
@@ -66,9 +76,32 @@ def build(output: Path = OUTPUT_PATH, min_height: int = 720) -> tuple[Path, int,
     return output, len(records), sum(1 for r in records if "q" in r)
 
 
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):  # keep the terminal readable
+        pass
+
+
+def serve(path: Path, port: int, open_browser: bool) -> None:
+    """Serve only the folder the map is in, on this computer only."""
+    folder = path.resolve().parent
+    handler = functools.partial(_QuietHandler, directory=str(folder))
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("127.0.0.1", port), handler) as httpd:
+        url = f"http://localhost:{port}/{path.name}"
+        print(f"Serving the map at {url}  (Ctrl+C to stop)")
+        if open_browser:
+            webbrowser.open(url)
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopped.")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="Build the camera map.")
-    p.add_argument("--no-open", action="store_true", help="don't open the map in a browser")
+    p.add_argument("--no-open", action="store_true", help="build only: don't serve or open the map")
+    p.add_argument("--no-serve", action="store_true", help="open the file directly instead of serving it")
+    p.add_argument("--port", type=int, default=8765)
     p.add_argument("--output", type=Path, default=OUTPUT_PATH)
     p.add_argument("--min-height", type=int, default=720, choices=[0, 480, 720, 1080],
                    help="starting picture-quality filter in pixels (default 720; 0 shows all)")
@@ -76,8 +109,12 @@ def main(argv: list[str] | None = None) -> None:
 
     path, n, scanned = build(args.output, args.min_height)
     print(f"Map built with {n:,} cameras ({scanned:,} with scan results): {path}")
-    if not args.no_open:
+    if args.no_open:
+        return
+    if args.no_serve:
         webbrowser.open(path.resolve().as_uri())
+        return
+    serve(path, args.port, open_browser=True)
 
 
 if __name__ == "__main__":

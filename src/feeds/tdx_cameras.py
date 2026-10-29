@@ -10,8 +10,8 @@ import time
 
 import requests
 
+from src.feeds.formats import with_format
 from src.feeds.http import session
-
 from src.feeds.tdx_auth import get_auth
 
 BASE_URL = "https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/CCTV"
@@ -24,6 +24,16 @@ CITIES = [
     "YilanCounty", "HualienCounty", "TaitungCounty", "PenghuCounty",
     "KinmenCounty", "LienchiangCounty",
 ]
+
+# TDX city code -> OpenStreetMap city/county name.
+CITY_NAMES = {
+    "Taipei": "臺北市", "NewTaipei": "新北市", "Keelung": "基隆市", "Taoyuan": "桃園市",
+    "Hsinchu": "新竹市", "HsinchuCounty": "新竹縣", "MiaoliCounty": "苗栗縣", "Taichung": "臺中市",
+    "ChanghuaCounty": "彰化縣", "NantouCounty": "南投縣", "YunlinCounty": "雲林縣", "Chiayi": "嘉義市",
+    "ChiayiCounty": "嘉義縣", "Tainan": "臺南市", "Kaohsiung": "高雄市", "PingtungCounty": "屏東縣",
+    "YilanCounty": "宜蘭縣", "HualienCounty": "花蓮縣", "TaitungCounty": "臺東縣",
+    "PenghuCounty": "澎湖縣", "KinmenCounty": "金門縣", "LienchiangCounty": "連江縣",
+}
 
 # Small pause between requests so we stay well under TDX's rate limits.
 REQUEST_DELAY_SECONDS = 0.5
@@ -63,10 +73,14 @@ def _get_json(url: str) -> dict | None:
 
 def _normalise(raw: dict, source: str) -> dict:
     """Turn one raw TDX CCTV record into our own simple format."""
-    return {
+    refresh = raw.get("ImageRefreshRate")
+    return with_format({
         "id": f"tdx-{source}:{raw.get('CCTVID')}",
         "source": f"tdx-{source}",
         "category": "traffic",
+        "country": "TWN",
+        "region": CITY_NAMES.get(source, "other"),
+        "county": None,
         "road": raw.get("RoadName"),
         "direction": raw.get("RoadDirection"),
         "description": raw.get("SurveillanceDescription"),
@@ -74,8 +88,9 @@ def _normalise(raw: dict, source: str) -> dict:
         "lon": raw.get("PositionLon"),
         "stream_url": raw.get("VideoStreamURL") or raw.get("VideoImageURL"),
         "url_type": "stream",
-        "refresh_rate": raw.get("ImageRefreshRate"),
-    }
+        "refresh_rate": refresh,
+        "update_rate": int(refresh) * 1000 if isinstance(refresh, (int, float)) and refresh > 0 else None,
+    })
 
 
 def fetch_source(source: str) -> list[dict]:
