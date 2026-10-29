@@ -48,6 +48,16 @@ Download links are looked up from the data.gov.tw metadata API on every run, so 
 
 Not included: Taipei City's road cameras. That dataset only has locations, and using Taipei's live traffic images requires an application to the city.
 
+### Check camera quality
+
+```bash
+python -m src.feeds.scan --region new-taipei    # New Taipei area (includes Taipei City)
+python -m src.feeds.scan --category traffic     # all road cameras
+python -m src.feeds.scan --sample 200           # random 200 from everything
+```
+
+Connects to each camera for a few seconds and records whether it's online, its resolution, frame rate and response time, then ranks them. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel). No footage is saved. Regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
+
 ### Optional: TDX
 
 TDX covers every city, but needs a free account. Put your keys in `.env` (copy `.env.example`), then:
@@ -86,7 +96,8 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 ## Roadmap
 
 - [x] Phase 1a: camera lists from open data (and optionally TDX)
-- [ ] Phase 1b: map every camera
+- [x] Phase 1b: camera quality scanner
+- [ ] Phase 1c: map every camera
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data
