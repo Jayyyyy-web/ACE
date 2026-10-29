@@ -62,6 +62,11 @@
   .pop-feed { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; overflow: hidden;
     display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; }
   .pop-feed img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .pop-feed.framed { position: relative; display: block; }
+  /* Agency pages are laid out for a bigger window, so render them at their
+     natural size and shrink the whole thing to fit the popup. */
+  .pop-feed.framed iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: #000; }
+  .pop-hint { color: var(--muted); font-size: 11px; margin-top: 4px; }
   .pop-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
   .pop-actions a { color: var(--accent); text-decoration: none; font-weight: 600; }
@@ -121,7 +126,7 @@ const TYPES = {
   stream: { label: "Live video", color: "var(--stream)", hex: "#4ea1ff" },
   image:  { label: "Refreshing still", color: "var(--image)", hex: "#2ec4b6" },
   page:   { label: "Web page", color: "var(--page)", hex: "#f4a261" },
-  viewer: { label: "City viewer (opens in browser)", color: "var(--viewer)", hex: "#b583ff" },
+  viewer: { label: "City viewer", color: "var(--viewer)", hex: "#b583ff" },
 };
 const WATER_HEX = "#3ddc97";
 const OFFLINE_HEX = "#5c6470";
@@ -134,11 +139,11 @@ const map = L.map("map", { preferCanvas: true, zoomControl: true, maxZoom: 18 })
 // Esri's dark basemap: free for non-commercial use with attribution, and
 // works when the map is opened straight from a file (no API key needed).
 L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 16,
+  maxNativeZoom: 16, maxZoom: 18,
   attribution: 'Basemap &copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, &copy; OpenStreetMap contributors',
 }).addTo(map);
 L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 16, pane: "overlayPane",
+  maxNativeZoom: 16, maxZoom: 18, pane: "overlayPane",
 }).addTo(map);
 
 const cluster = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, showCoverageOnHover: false });
@@ -154,10 +159,25 @@ function title(c) {
   return [c.road, c.description].filter(Boolean).join(" · ") || c.id;
 }
 
+// Natural size of each agency's viewer page, used to scale it into the popup.
+const FRAME_SIZE = {
+  "new-taipei": [640, 360],
+  "debris-flow": [740, 560],
+  default: [800, 450],
+};
+
 function feedHtml(c) {
   const live = c.q && c.q.probed_url ? c.q.probed_url : c.stream_url;
-  if (c.url_type === "viewer" || c.url_type === "page") {
-    return `<div class="pop-feed">This camera plays on the agency's own page.<br>Use “Open feed” below.</div>`;
+  // If the scanner found the raw feed inside a wrapper page, show that directly.
+  const foundInner = c.q && c.q.status === "online" && c.q.probed_url && c.q.probed_url !== c.stream_url
+    && (c.q.kind === "mjpeg" || c.q.kind === "image");
+  if ((c.url_type === "viewer" || c.url_type === "page") && !foundInner) {
+    // Show the agency's own viewer page inside the popup.
+    const [w, h] = FRAME_SIZE[c.source] || FRAME_SIZE.default;
+    return `<div class="pop-feed framed"><iframe data-src="${esc(c.stream_url)}" width="${w}" height="${h}"
+      data-w="${w}" data-h="${h}" title="Live view of ${esc(title(c))}" loading="lazy"
+      referrerpolicy="no-referrer" allow="autoplay; fullscreen"></iframe></div>
+      <div class="pop-hint">Shown from the agency's own page. Blank? Some sites block embedding — use “Open feed”.</div>`;
   }
   if (c.q && c.q.kind === "hls") {
     return `<div class="pop-feed">HLS video — open it in a new tab to watch.</div>`;
@@ -194,14 +214,25 @@ const markers = CAMERAS.map(c => {
 
 // Only stream video while a popup is open; stop it as soon as it closes.
 map.on("popupopen", e => {
-  e.popup.getElement()?.querySelectorAll("img[data-src]").forEach(img => {
+  const el = e.popup.getElement();
+  el?.querySelectorAll("iframe[data-src]").forEach(fr => {
+    const box = fr.parentElement;
+    const w = +fr.dataset.w, h = +fr.dataset.h;
+    const scale = box.clientWidth / w;
+    fr.style.transform = `scale(${scale})`;
+    box.style.aspectRatio = `${w} / ${h}`;
+    fr.src = fr.dataset.src;
+  });
+  el?.querySelectorAll("img[data-src]").forEach(img => {
     img.onerror = () => { img.replaceWith(Object.assign(document.createElement("span"),
       { textContent: "Couldn't load — the camera may be offline. Try “Open feed”." })); };
     img.src = img.dataset.src;
   });
 });
 map.on("popupclose", e => {
+  // Stop video when the popup closes so nothing keeps streaming.
   e.popup.getElement()?.querySelectorAll("img").forEach(img => { img.removeAttribute("src"); });
+  e.popup.getElement()?.querySelectorAll("iframe").forEach(fr => { fr.src = "about:blank"; });
 });
 
 // ---------- filters ----------

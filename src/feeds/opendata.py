@@ -51,6 +51,7 @@ class Source:
     # the scanner skip these; they're for opening in a browser.
     viewer_url: str = ""     # e.g. "https://.../ShowFrame4CCTV/{id}"
     viewer_id_field: str = ""
+    url_type: str = ""       # force a link type when the URL is misleading
 
 
 SOURCES = [
@@ -71,7 +72,9 @@ SOURCES = [
     # Water / disaster
     Source("wra-flood", 36687, "water", "Water Resources Agency flood-prevention cameras", "JSON"),
     Source("wra-river", 41567, "water", "Water Resources Agency river cameras", "JSON"),
-    Source("debris-flow", 9327, "water", "Agriculture ministry debris-flow monitoring cameras", "JSON"),
+    # Links look like images (ShowCCDImg) but are HTML pages wrapping the image.
+    Source("debris-flow", 9327, "water", "Agriculture ministry debris-flow monitoring cameras", "JSON",
+           url_type="page"),
 ]
 
 # Every source names its fields differently. These lists say which field to
@@ -273,7 +276,7 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
         "lat": lat,
         "lon": lon,
         "stream_url": url,
-        "url_type": "viewer" if source.viewer_url else _url_type(url),
+        "url_type": "viewer" if source.viewer_url else (source.url_type or _url_type(url)),
         "refresh_rate": None,
     }
 
