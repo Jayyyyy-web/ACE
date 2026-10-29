@@ -16,6 +16,8 @@ import time
 import requests
 from dotenv import load_dotenv
 
+from src.feeds.http import session
+
 TOKEN_URL = (
     "https://tdx.transportdata.tw/auth/realms/TDXConnect/"
     "protocol/openid-connect/token"
@@ -52,7 +54,7 @@ class TDXAuth:
             return self._token
 
         try:
-            resp = requests.post(
+            resp = session.post(
                 TOKEN_URL,
                 data={
                     "grant_type": "client_credentials",
