@@ -10,6 +10,10 @@ Categories:
   water    flood, river and debris-flow cameras (useful for typhoon mode)
 
 Not included on purpose:
+  New Taipei City's cameras are included as "view-only": their dataset has
+  locations but no stream links, so each one links to the city's official
+  viewer page (url_type "viewer"), and nothing pulls their video automatically.
+
   Taipei City's own road cameras (dataset 121253) — the dataset has locations
   only, and using Taipei's live traffic images requires an application to
   the city. Stick to sources that publish stream URLs openly.
@@ -42,6 +46,11 @@ class Source:
     category: str     # "traffic" or "water"
     label: str        # human-readable description
     prefer: str = ""  # preferred file format when a dataset offers several
+    # For "view-only" sources: the dataset has no stream links, so we link to
+    # the agency's own public viewer page for each camera instead. The AI and
+    # the scanner skip these; they're for opening in a browser.
+    viewer_url: str = ""     # e.g. "https://.../ShowFrame4CCTV/{id}"
+    viewer_id_field: str = ""
 
 
 SOURCES = [
@@ -51,6 +60,11 @@ SOURCES = [
     Source("chiayi-county", 122133, "traffic", "Chiayi County"),
     Source("chiayi-city", 173813, "traffic", "Chiayi City"),
     Source("tainan", 166140, "traffic", "Tainan City"),
+    Source(
+        "new-taipei", 158108, "traffic", "New Taipei City (view-only, official viewer)",
+        viewer_url="https://atis.ntpc.gov.tw/ATIS/ShowFrame4CCTV/{id}",
+        viewer_id_field="areacode",
+    ),
     Source("taipei-mrt-works-1", 138749, "traffic", "Taipei MRT construction sites (Wanda line, 2nd office)"),
     Source("taipei-mrt-works-2", 138750, "traffic", "Taipei MRT construction sites (Xinyi east extension)"),
     Source("taipei-mrt-works-3", 145692, "traffic", "Taipei MRT construction sites (Wanda line, 1st office)"),
@@ -71,7 +85,7 @@ FIELD_CANDIDATES = {
     "direction": ["RoadDirection"],
     "description": [
         "SurveillanceDescription", "Location", "cameraname", "stationname",
-        "攝影機名稱", "鏡頭位置", "架設或拍攝地點",
+        "攝影機名稱", "鏡頭位置", "架設或拍攝地點", "address",
     ],
 }
 
@@ -226,7 +240,13 @@ def _url_type(url: str) -> str:
 
 
 def _normalise(record: dict, source: Source, index: int) -> dict | None:
-    url = _pick(record, "url")
+    viewer_id = None
+    if source.viewer_url:
+        lowered = {str(k).lower(): v for k, v in record.items()}
+        viewer_id = str(lowered.get(source.viewer_id_field.lower()) or "").strip()
+        url = source.viewer_url.format(id=viewer_id) if viewer_id else None
+    else:
+        url = _pick(record, "url")
     lat = _to_float(_pick(record, "lat"))
     lon = _to_float(_pick(record, "lon"))
     if not url or lat is None or lon is None:
@@ -237,19 +257,23 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
     if not _in_taiwan(lat, lon):
         return None
 
-    raw_id = _pick(record, "id") or index
+    raw_id = viewer_id or _pick(record, "id") or index
     url = str(url).strip()
+    description = _pick(record, "description")
+    district = record.get("district") or record.get("行政區")
+    if district and description and district not in description:
+        description = f"{district} {description}"
     return {
         "id": f"{source.key}:{raw_id}",
         "source": source.key,
         "category": source.category,
         "road": _pick(record, "road"),
         "direction": _pick(record, "direction"),
-        "description": _pick(record, "description"),
+        "description": description,
         "lat": lat,
         "lon": lon,
         "stream_url": url,
-        "url_type": _url_type(url),
+        "url_type": "viewer" if source.viewer_url else _url_type(url),
         "refresh_rate": None,
     }
 

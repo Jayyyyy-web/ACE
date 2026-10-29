@@ -39,6 +39,7 @@ python -m src.feeds.cameras --category water     # flood / river / debris-flow c
 | Chiayi County | traffic | [122133](https://data.gov.tw/dataset/122133) |
 | Chiayi City | traffic | [173813](https://data.gov.tw/dataset/173813) |
 | Tainan City | traffic | [166140](https://data.gov.tw/dataset/166140) |
+| New Taipei City (view-only) | traffic | [158108](https://data.gov.tw/dataset/158108) |
 | Taipei MRT construction-site cameras | traffic | [138749](https://data.gov.tw/dataset/138749), [138750](https://data.gov.tw/dataset/138750), [145692](https://data.gov.tw/dataset/145692) |
 | Water Resources Agency flood cameras | water | [36687](https://data.gov.tw/dataset/36687) |
 | Water Resources Agency river cameras | water | [41567](https://data.gov.tw/dataset/41567) |
@@ -87,7 +88,9 @@ python -m src.feeds.cameras --source all              # open data + TDX
 }
 ```
 
-`url_type` is `stream` (video/MJPEG), `image` (a still that refreshes) or `page` (a web page that embeds the camera).
+`url_type` is `stream` (video/MJPEG), `image` (a still that refreshes), `page` (a web page that embeds the camera) or `viewer`.
+
+`viewer` cameras (New Taipei) come from a dataset with locations but no stream links, so each links to the city's official live-traffic viewer page. They're for opening in a browser; the scanner and any automated analysis skip them. Analysing New Taipei's video automatically would need the official TDX feed.
 
 ### Note on Python 3.13+
 

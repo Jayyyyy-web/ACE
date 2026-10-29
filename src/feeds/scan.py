@@ -282,7 +282,12 @@ def _in_region(cam: dict, region: str) -> bool:
 
 
 def select(cameras: list[dict], args) -> list[dict]:
-    out = cameras
+    # "viewer" cameras are official web pages for people to open in a
+    # browser; we don't pull video from them automatically.
+    viewers = [c for c in cameras if c.get("url_type") == "viewer"]
+    out = [c for c in cameras if c.get("url_type") != "viewer"]
+    if viewers:
+        print(f"Skipping {len(viewers)} view-only cameras (open those in a browser).")
     if args.region:
         out = [c for c in out if _in_region(c, args.region)]
     if args.source:
