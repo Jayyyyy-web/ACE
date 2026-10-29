@@ -6,8 +6,10 @@ scanner), and writes a single self-contained page to data/map.html.
     python -m src.map            # build and open in your browser
     python -m src.map --no-open  # build only
 
-Clicking a pin shows the live feed (only while the popup is open) and a link
-to the original source. Nothing is recorded.
+Clicking a pin opens the camera in a viewer that takes half the screen.
+By default only cameras measured at 720p or better are shown (needs a scan),
+plus cameras whose size is unknown. Use the sidebar to change that, or
+--min-height 0 to start with everything. Nothing is recorded.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ def _embed(value) -> str:
     return text.replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
-def build(output: Path = OUTPUT_PATH) -> tuple[Path, int, int]:
+def build(output: Path = OUTPUT_PATH, min_height: int = 720) -> tuple[Path, int, int]:
     if not CAMERAS_PATH.exists():
         raise SystemExit("data/cameras.json not found. Run: python -m src.feeds.cameras")
     cameras = json.loads(CAMERAS_PATH.read_text(encoding="utf-8"))
@@ -57,6 +59,7 @@ def build(output: Path = OUTPUT_PATH) -> tuple[Path, int, int]:
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
     html = html.replace("__CAMERAS__", _embed(records))
     html = html.replace("__GENERATED__", _embed(datetime.now().strftime("%Y-%m-%d %H:%M")))
+    html = html.replace("__MIN_HEIGHT__", str(int(min_height)))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html, encoding="utf-8")
@@ -67,9 +70,11 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="Build the camera map.")
     p.add_argument("--no-open", action="store_true", help="don't open the map in a browser")
     p.add_argument("--output", type=Path, default=OUTPUT_PATH)
+    p.add_argument("--min-height", type=int, default=720, choices=[0, 480, 720, 1080],
+                   help="starting picture-quality filter in pixels (default 720; 0 shows all)")
     args = p.parse_args(argv)
 
-    path, n, scanned = build(args.output)
+    path, n, scanned = build(args.output, args.min_height)
     print(f"Map built with {n:,} cameras ({scanned:,} with scan results): {path}")
     if not args.no_open:
         webbrowser.open(path.resolve().as_uri())

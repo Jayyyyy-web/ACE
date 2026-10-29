@@ -55,7 +55,11 @@ Not included: Taipei City's road cameras. That dataset only has locations, and u
 python -m src.map
 ```
 
-Builds `data/map.html` and opens it in your browser: every camera as a pin, clustered by area and coloured by type, with search (road, district or ID), filters by type and source, and a "best quality" list if you've run the scanner. Clicking a pin plays the live feed only while the popup is open; view-only cameras link to the agency's own page. Rebuild after fetching cameras or scanning again.
+Builds `data/map.html` and opens it in your browser: every camera as a pin, clustered by area and coloured by type, with search (road, district or ID) and filters by type and source.
+
+Click a pin and the camera opens in a viewer that takes half the screen (the bottom half on a phone). Use **‹ Prev / Next ›** or the `[` and `]` keys to flip through the cameras currently shown, and **Esc** to close. The feed stops as soon as you close or switch cameras.
+
+**Picture quality:** by default the map only shows cameras measured at 720p or better, so everything you open fills the viewer. This needs scan results (`python -m src.feeds.scan --category traffic`, then rebuild the map). Cameras whose size is unknown, like New Taipei's city viewers, are included unless you untick that option. Change the starting filter with `python -m src.map --min-height 1080` (or `480`, or `0` for everything).
 
 ### Check camera quality
 

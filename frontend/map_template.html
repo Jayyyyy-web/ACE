@@ -16,73 +16,75 @@
     --text: #e6e9ee;
     --muted: #8b95a3;
     --accent: #4ea1ff;
-    --stream: #4ea1ff;
-    --image: #2ec4b6;
-    --page: #f4a261;
-    --viewer: #b583ff;
-    --water: #3ddc97;
-    --offline: #5c6470;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
   #app { display: flex; height: 100%; }
-  #side { width: 320px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
+  #side { width: 300px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
     display: flex; flex-direction: column; overflow: hidden; }
-  #map { flex: 1; }
+  #map { flex: 1; min-width: 0; }
+
+  /* Big viewer: takes half the screen when a camera is selected. */
+  #viewer { width: 0; flex: none; background: #07090c; border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden; transition: width .2s ease; }
+  body.viewing #viewer { width: 50vw; }
+  .v-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .v-title { font-weight: 600; font-size: 16px; }
+  .v-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .v-close { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; width: 32px; height: 32px; font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
+  .v-close:hover { background: var(--panel-2); }
+  .v-stage { flex: 1; min-height: 0; position: relative; background: #000; display: grid; place-items: center; overflow: hidden; }
+  .v-stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .v-stage iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: #000; }
+  .v-msg { color: var(--muted); text-align: center; padding: 24px; max-width: 420px; }
+  .v-foot { padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .v-foot a { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .v-foot a:hover { text-decoration: underline; }
+  .v-nav { display: flex; gap: 6px; }
+  .v-nav button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+  .v-nav button:hover { border-color: var(--accent); }
+
   header { padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
   h1 { margin: 0; font-size: 16px; letter-spacing: .08em; }
   h1 span { color: var(--muted); font-weight: 400; letter-spacing: 0; }
   .stats { margin-top: 6px; color: var(--muted); font-size: 12px; }
   .scroll { overflow-y: auto; padding: 12px 16px 16px; }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
-    margin: 16px 0 8px; font-weight: 600; }
+    margin: 18px 0 8px; font-weight: 600; }
   h2:first-child { margin-top: 0; }
-  input[type=search] { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line);
+  input[type=search], select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line);
     background: var(--panel-2); color: var(--text); font: inherit; }
-  input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type=search]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   label.row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
   label.row .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-  .note { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
   .best { list-style: none; padding: 0; margin: 0; }
   .best li { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; }
   .best li:hover { background: var(--panel-2); }
-  .best .sc { color: var(--accent); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
+  .best .sc { color: var(--accent); font-variant-numeric: tabular-nums; width: 78px; flex: none; font-size: 12px; }
   .best .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   footer { margin-top: auto; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 
-  /* Popups */
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--text);
-    border: 1px solid var(--line); box-shadow: 0 8px 30px rgba(0,0,0,.5); }
-  .leaflet-popup-content { margin: 12px 14px; width: 340px !important; }
-  .leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
-  .pop-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
-  .pop-sub { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-  .pop-feed { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; overflow: hidden;
-    display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; }
-  .pop-feed img { width: 100%; height: 100%; object-fit: contain; display: block; }
-  .pop-feed.framed { position: relative; display: block; }
-  /* Agency pages are laid out for a bigger window, so render them at their
-     natural size and shrink the whole thing to fit the popup. */
-  .pop-feed.framed iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: #000; }
-  .pop-hint { color: var(--muted); font-size: 11px; margin-top: 4px; }
-  .pop-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
-  .pop-actions a { color: var(--accent); text-decoration: none; font-weight: 600; }
-  .pop-actions a:hover { text-decoration: underline; }
-
-  /* Cluster bubbles in the dark theme */
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+  .leaflet-tooltip-top:before { border-top-color: var(--line); }
   .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background: rgba(78,161,255,.25); }
   .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
     background: rgba(78,161,255,.85); color: #fff; font-weight: 600; }
   .leaflet-control-attribution { background: rgba(15,18,22,.8) !important; color: var(--muted); }
   .leaflet-control-attribution a { color: var(--muted); }
 
-  @media (max-width: 760px) {
+  @media (max-width: 900px) {
     #app { flex-direction: column; }
-    #side { width: 100%; height: 42%; border-right: 0; border-bottom: 1px solid var(--line); }
-    .leaflet-popup-content { width: 260px !important; }
+    #side { width: 100%; height: 38%; border-right: 0; border-bottom: 1px solid var(--line); }
+    body.viewing #side { display: none; }
+    #viewer { width: 100% !important; height: 0; border-left: 0; transition: height .2s ease; }
+    body.viewing #viewer { height: 50vh; border-top: 1px solid var(--line); }
   }
 </style>
 </head>
@@ -97,6 +99,16 @@
       <h2>Search</h2>
       <input type="search" id="q" placeholder="Road, place or ID (e.g. 國道1號, 蘆洲)">
 
+      <h2>Picture quality</h2>
+      <select id="minRes">
+        <option value="0">Any size</option>
+        <option value="480">480p and up</option>
+        <option value="720">720p and up (fills the viewer)</option>
+        <option value="1080">1080p only</option>
+      </select>
+      <label class="row"><input type="checkbox" id="unmeasured"> Include cameras with unknown size <span class="n" id="unmeasuredN"></span></label>
+      <div class="note" id="qualityNote"></div>
+
       <h2>Show</h2>
       <div id="types"></div>
       <label class="row" id="onlineRow" hidden>
@@ -107,13 +119,30 @@
       <div id="sources"></div>
 
       <div id="bestWrap" hidden>
-        <h2>Best quality (last scan)</h2>
+        <h2>Sharpest cameras</h2>
         <ul class="best" id="best"></ul>
       </div>
     </div>
     <footer>Public open-data feeds. View only — nothing is recorded.<br>Generated <span id="gen"></span></footer>
   </aside>
+
   <div id="map"></div>
+
+  <section id="viewer" aria-label="Camera viewer">
+    <div class="v-head">
+      <div>
+        <div class="v-title" id="vTitle"></div>
+        <div class="v-sub" id="vSub"></div>
+      </div>
+      <button class="v-close" id="vClose" title="Close (Esc)" aria-label="Close viewer">×</button>
+    </div>
+    <div class="v-stage" id="vStage"></div>
+    <div class="v-foot">
+      <span id="vTags" style="display:contents"></span>
+      <span class="v-nav"><button id="vPrev" title="Previous camera ( [ )">‹ Prev</button><button id="vNext" title="Next camera ( ] )">Next ›</button></span>
+      <a id="vOpen" href="#" target="_blank" rel="noopener noreferrer">Open source ↗</a>
+    </div>
+  </section>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -121,21 +150,28 @@
 <script>
 const CAMERAS = __CAMERAS__;
 const GENERATED = __GENERATED__;
+const DEFAULT_MIN_HEIGHT = __MIN_HEIGHT__;
 
 const TYPES = {
-  stream: { label: "Live video", color: "var(--stream)", hex: "#4ea1ff" },
-  image:  { label: "Refreshing still", color: "var(--image)", hex: "#2ec4b6" },
-  page:   { label: "Web page", color: "var(--page)", hex: "#f4a261" },
-  viewer: { label: "City viewer", color: "var(--viewer)", hex: "#b583ff" },
+  stream: { label: "Live video", hex: "#4ea1ff" },
+  image:  { label: "Refreshing still", hex: "#2ec4b6" },
+  page:   { label: "Web page", hex: "#f4a261" },
+  viewer: { label: "City viewer", hex: "#b583ff" },
 };
 const WATER_HEX = "#3ddc97";
 const OFFLINE_HEX = "#5c6470";
 
+// Natural size of each agency's viewer page, used to scale it to the viewer.
+const FRAME_SIZE = { "new-taipei": [640, 360], "debris-flow": [740, 560], default: [800, 450] };
+
 const hasScan = CAMERAS.some(c => c.q);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const title = c => [c.road, c.description].filter(Boolean).join(" · ") || c.id;
+const height = c => (c.q && c.q.status === "online" && c.q.height) ? c.q.height : null;
+const typeKey = c => c.category === "water" ? "water" : c.url_type;
 
 // ---------- map ----------
-const map = L.map("map", { preferCanvas: true, zoomControl: true, maxZoom: 18 }).setView([23.75, 120.95], 8);
+const map = L.map("map", { preferCanvas: true, maxZoom: 18 }).setView([23.75, 120.95], 8);
 // Esri's dark basemap: free for non-commercial use with attribution, and
 // works when the map is opened straight from a file (no API key needed).
 L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
@@ -155,97 +191,133 @@ function colorFor(c) {
   return (TYPES[c.url_type] || TYPES.stream).hex;
 }
 
-function title(c) {
-  return [c.road, c.description].filter(Boolean).join(" · ") || c.id;
-}
-
-// Natural size of each agency's viewer page, used to scale it into the popup.
-const FRAME_SIZE = {
-  "new-taipei": [640, 360],
-  "debris-flow": [740, 560],
-  default: [800, 450],
-};
-
-function feedHtml(c) {
-  const live = c.q && c.q.probed_url ? c.q.probed_url : c.stream_url;
-  // If the scanner found the raw feed inside a wrapper page, show that directly.
-  const foundInner = c.q && c.q.status === "online" && c.q.probed_url && c.q.probed_url !== c.stream_url
-    && (c.q.kind === "mjpeg" || c.q.kind === "image");
-  if ((c.url_type === "viewer" || c.url_type === "page") && !foundInner) {
-    // Show the agency's own viewer page inside the popup.
-    const [w, h] = FRAME_SIZE[c.source] || FRAME_SIZE.default;
-    return `<div class="pop-feed framed"><iframe data-src="${esc(c.stream_url)}" width="${w}" height="${h}"
-      data-w="${w}" data-h="${h}" title="Live view of ${esc(title(c))}" loading="lazy"
-      referrerpolicy="no-referrer" allow="autoplay; fullscreen"></iframe></div>
-      <div class="pop-hint">Shown from the agency's own page. Blank? Some sites block embedding — use “Open feed”.</div>`;
-  }
-  if (c.q && c.q.kind === "hls") {
-    return `<div class="pop-feed">HLS video — open it in a new tab to watch.</div>`;
-  }
-  // MJPEG streams and still images both display in an <img>.
-  return `<div class="pop-feed"><img data-src="${esc(live)}" alt="Live view of ${esc(title(c))}"></div>`;
-}
-
-function popupHtml(c) {
-  const tags = [`<span class="tag">${esc(c.source)}</span>`, `<span class="tag">${esc((TYPES[c.url_type]||{}).label || c.url_type)}</span>`];
-  if (c.direction) tags.push(`<span class="tag">dir ${esc(c.direction)}</span>`);
-  if (c.q) {
-    if (c.q.status !== "online") tags.push(`<span class="tag">last scan: ${esc(c.q.status)}</span>`);
-    if (c.q.width) tags.push(`<span class="tag">${c.q.width}×${c.q.height}</span>`);
-    if (c.q.fps != null) tags.push(`<span class="tag">${c.q.fps} fps</span>`);
-    if (c.q.score) tags.push(`<span class="tag">score ${c.q.score}</span>`);
-  }
-  return `
-    <div class="pop-title">${esc(title(c))}</div>
-    <div class="pop-sub">${esc(c.id)}</div>
-    ${feedHtml(c)}
-    <div class="pop-meta">${tags.join("")}</div>
-    <div class="pop-actions"><a href="${esc(c.stream_url)}" target="_blank" rel="noopener noreferrer">Open feed ↗</a></div>`;
-}
-
 const markers = CAMERAS.map(c => {
   const m = L.circleMarker([c.lat, c.lon], {
     radius: 6, weight: 1.5, color: "#0f1216", fillColor: colorFor(c), fillOpacity: .95,
   });
-  m.bindPopup(() => popupHtml(c), { maxWidth: 380, autoPanPadding: [40, 40] });
+  m.bindTooltip(() => {
+    const h = height(c);
+    return `${esc(title(c))}${h ? ` · ${c.q.width}×${h}` : ""}`;
+  }, { direction: "top", offset: [0, -6] });
+  m.on("click", () => openViewer(c));
   m.cam = c;
   return m;
 });
+const markerFor = new Map(markers.map(m => [m.cam, m]));
 
-// Only stream video while a popup is open; stop it as soon as it closes.
-map.on("popupopen", e => {
-  const el = e.popup.getElement();
-  el?.querySelectorAll("iframe[data-src]").forEach(fr => {
-    const box = fr.parentElement;
-    const w = +fr.dataset.w, h = +fr.dataset.h;
-    const scale = box.clientWidth / w;
-    fr.style.transform = `scale(${scale})`;
-    box.style.aspectRatio = `${w} / ${h}`;
-    fr.src = fr.dataset.src;
-  });
-  el?.querySelectorAll("img[data-src]").forEach(img => {
-    img.onerror = () => { img.replaceWith(Object.assign(document.createElement("span"),
-      { textContent: "Couldn't load — the camera may be offline. Try “Open feed”." })); };
-    img.src = img.dataset.src;
-  });
+// ---------- big viewer ----------
+let current = null;
+let selectedRing = null;
+let visibleList = [];
+const stage = document.getElementById("vStage");
+
+function stopFeed() {
+  stage.querySelectorAll("img").forEach(i => i.removeAttribute("src"));
+  stage.querySelectorAll("iframe").forEach(f => { f.src = "about:blank"; });
+  stage.innerHTML = "";
+}
+
+function fitFrame() {
+  const fr = stage.querySelector("iframe");
+  if (!fr) return;
+  const w = +fr.dataset.w, h = +fr.dataset.h;
+  const scale = Math.min(stage.clientWidth / w, stage.clientHeight / h);
+  fr.style.transform = `scale(${scale})`;
+  fr.style.left = `${(stage.clientWidth - w * scale) / 2}px`;
+  fr.style.top = `${(stage.clientHeight - h * scale) / 2}px`;
+}
+
+function showFeed(c) {
+  stopFeed();
+  const inner = c.q && c.q.status === "online" && c.q.probed_url && c.q.probed_url !== c.stream_url
+    && (c.q.kind === "mjpeg" || c.q.kind === "image") ? c.q.probed_url : null;
+
+  if ((c.url_type === "viewer" || c.url_type === "page") && !inner) {
+    const [w, h] = FRAME_SIZE[c.source] || FRAME_SIZE.default;
+    const fr = document.createElement("iframe");
+    Object.assign(fr, { width: w, height: h, title: `Live view of ${title(c)}`, referrerPolicy: "no-referrer" });
+    fr.dataset.w = w; fr.dataset.h = h;
+    fr.allow = "autoplay; fullscreen";
+    stage.appendChild(fr);
+    // Wait for the panel to finish opening before measuring it.
+    setTimeout(() => { fitFrame(); fr.src = c.stream_url; }, 220);
+    return;
+  }
+  if (c.q && c.q.kind === "hls") {
+    stage.innerHTML = `<div class="v-msg">This camera streams HLS video, which can't play here. Use “Open source”.</div>`;
+    return;
+  }
+  const img = document.createElement("img");
+  img.alt = `Live view of ${title(c)}`;
+  img.onerror = () => { stage.innerHTML = `<div class="v-msg">Couldn't load this camera. It may be offline right now. Try “Open source” or another camera.</div>`; };
+  img.src = inner || c.stream_url;
+  stage.appendChild(img);
+}
+
+function openViewer(c) {
+  current = c;
+  document.body.classList.add("viewing");
+  document.getElementById("vTitle").textContent = title(c);
+  document.getElementById("vSub").textContent = c.id;
+  document.getElementById("vOpen").href = c.stream_url;
+
+  const tags = [c.source, (TYPES[c.url_type] || {}).label || c.url_type];
+  if (c.direction) tags.push(`dir ${c.direction}`);
+  if (c.q && c.q.width) tags.push(`${c.q.width}×${c.q.height}`);
+  if (c.q && c.q.fps != null) tags.push(`${c.q.fps} fps`);
+  if (c.q && c.q.status && c.q.status !== "online") tags.push(`last scan: ${c.q.status}`);
+  document.getElementById("vTags").innerHTML = tags.map(t => `<span class="tag">${esc(t)}</span>`).join("");
+
+  showFeed(c);
+
+  if (selectedRing) map.removeLayer(selectedRing);
+  selectedRing = L.circleMarker([c.lat, c.lon], { radius: 12, weight: 3, color: "#fff", fill: false, interactive: false }).addTo(map);
+  setTimeout(() => {
+    map.invalidateSize();
+    if (!map.getBounds().pad(-0.15).contains([c.lat, c.lon])) map.panTo([c.lat, c.lon]);
+  }, 220);
+}
+
+function closeViewer() {
+  stopFeed();
+  current = null;
+  document.body.classList.remove("viewing");
+  if (selectedRing) { map.removeLayer(selectedRing); selectedRing = null; }
+  setTimeout(() => map.invalidateSize(), 220);
+}
+
+function step(dir) {
+  if (!visibleList.length) return;
+  let i = current ? visibleList.indexOf(current) : -1;
+  i = (i + dir + visibleList.length) % visibleList.length;
+  const c = visibleList[i];
+  map.setView([c.lat, c.lon], Math.max(map.getZoom(), 14));
+  openViewer(c);
+}
+
+document.getElementById("vClose").addEventListener("click", closeViewer);
+document.getElementById("vPrev").addEventListener("click", () => step(-1));
+document.getElementById("vNext").addEventListener("click", () => step(1));
+document.addEventListener("keydown", e => {
+  if (e.target.matches("input, select")) return;
+  if (e.key === "Escape") closeViewer();
+  if (e.key === "]") step(1);
+  if (e.key === "[") step(-1);
 });
-map.on("popupclose", e => {
-  // Stop video when the popup closes so nothing keeps streaming.
-  e.popup.getElement()?.querySelectorAll("img").forEach(img => { img.removeAttribute("src"); });
-  e.popup.getElement()?.querySelectorAll("iframe").forEach(fr => { fr.src = "about:blank"; });
-});
+window.addEventListener("resize", fitFrame);
 
 // ---------- filters ----------
-const state = { q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), onlineOnly: false };
+const state = {
+  q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(),
+  onlineOnly: false, minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
+};
 const sourceCounts = {};
 CAMERAS.forEach(c => { sourceCounts[c.source] = (sourceCounts[c.source] || 0) + 1; state.sources.add(c.source); });
 
-function typeKey(c) { return c.category === "water" ? "water" : c.url_type; }
-
-function checkboxRow(container, key, label, color, count, onChange) {
+function checkboxRow(container, key, label, dotStyle, count, onChange) {
   const row = document.createElement("label");
   row.className = "row";
-  row.innerHTML = `<input type="checkbox" checked> <span class="dot" style="background:${color}"></span>${esc(label)}<span class="n">${count.toLocaleString()}</span>`;
+  row.innerHTML = `<input type="checkbox" checked> <span class="dot" style="${dotStyle}"></span>${esc(label)}<span class="n">${count.toLocaleString()}</span>`;
   row.querySelector("input").addEventListener("change", ev => onChange(key, ev.target.checked));
   container.appendChild(row);
 }
@@ -255,15 +327,29 @@ CAMERAS.forEach(c => { const k = typeKey(c); typeCounts[k] = (typeCounts[k] || 0
 const typeBox = document.getElementById("types");
 [...Object.entries(TYPES).map(([k, t]) => [k, t.label, t.hex]), ["water", "Water / disaster cams", WATER_HEX]]
   .filter(([k]) => typeCounts[k])
-  .forEach(([k, label, hex]) => checkboxRow(typeBox, k, label, hex, typeCounts[k], (key, on) => {
+  .forEach(([k, label, hex]) => checkboxRow(typeBox, k, label, `background:${hex}`, typeCounts[k], (key, on) => {
     on ? state.types.add(key) : state.types.delete(key); apply();
   }));
 
 const srcBox = document.getElementById("sources");
 Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).forEach(([s, n]) =>
-  checkboxRow(srcBox, s, s, "transparent; border:1px solid var(--line)", n, (key, on) => {
+  checkboxRow(srcBox, s, s, "border:1px solid var(--line)", n, (key, on) => {
     on ? state.sources.add(key) : state.sources.delete(key); apply();
   }));
+
+// Quality controls
+const minResEl = document.getElementById("minRes");
+const unmeasuredEl = document.getElementById("unmeasured");
+const unknownCount = CAMERAS.filter(c => !height(c)).length;
+document.getElementById("unmeasuredN").textContent = unknownCount.toLocaleString();
+minResEl.value = String(state.minHeight);
+unmeasuredEl.checked = state.unmeasured;
+document.getElementById("qualityNote").textContent = hasScan
+  ? "Sizes come from your last scan. City viewers (New Taipei) aren't scanned, so their size is unknown."
+  : "No scan results yet, so sizes are unknown. Run: python -m src.feeds.scan --category traffic, then rebuild the map.";
+if (!hasScan) { minResEl.disabled = true; unmeasuredEl.disabled = true; }
+minResEl.addEventListener("change", () => { state.minHeight = +minResEl.value; apply(); });
+unmeasuredEl.addEventListener("change", () => { state.unmeasured = unmeasuredEl.checked; apply(); });
 
 if (hasScan) {
   document.getElementById("onlineRow").hidden = false;
@@ -276,10 +362,8 @@ document.getElementById("q").addEventListener("input", e => {
   qTimer = setTimeout(() => {
     state.q = e.target.value.trim().toLowerCase();
     const shown = apply();
-    // Jump to the matches when searching, so results aren't off-screen.
     if (state.q && shown.length) {
-      const b = L.latLngBounds(shown.map(m => m.getLatLng()));
-      map.fitBounds(b.pad(0.3), { maxZoom: 16 });
+      map.fitBounds(L.latLngBounds(shown.map(m => m.getLatLng())).pad(0.3), { maxZoom: 16 });
     }
   }, 250);
 });
@@ -287,6 +371,10 @@ document.getElementById("q").addEventListener("input", e => {
 function visible(c) {
   if (!state.types.has(typeKey(c)) || !state.sources.has(c.source)) return false;
   if (state.onlineOnly && !(c.q && c.q.status === "online")) return false;
+  if (state.minHeight > 0) {
+    const h = height(c);
+    if (h == null ? !state.unmeasured : h < state.minHeight) return false;
+  }
   if (state.q) {
     const hay = `${c.id} ${c.road || ""} ${c.description || ""} ${c.source}`.toLowerCase();
     if (!hay.includes(state.q)) return false;
@@ -296,6 +384,7 @@ function visible(c) {
 
 function apply() {
   const shown = markers.filter(m => visible(m.cam));
+  visibleList = shown.map(m => m.cam);
   cluster.clearLayers();
   cluster.addLayers(shown);
   const online = hasScan ? CAMERAS.filter(c => c.q && c.q.status === "online").length : null;
@@ -305,20 +394,20 @@ function apply() {
   return shown;
 }
 
-// ---------- best-quality list ----------
+// ---------- sharpest list ----------
 if (hasScan) {
-  const best = CAMERAS.filter(c => c.q && c.q.status === "online" && c.q.score > 0)
-    .sort((a, b) => b.q.score - a.q.score).slice(0, 12);
+  const best = CAMERAS.filter(c => height(c))
+    .sort((a, b) => (b.q.score || 0) - (a.q.score || 0)).slice(0, 15);
   if (best.length) {
     document.getElementById("bestWrap").hidden = false;
     const ul = document.getElementById("best");
     best.forEach(c => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="sc">${c.q.score}</span><span class="nm">${esc(title(c))}</span>`;
-      li.title = `${c.q.width}×${c.q.height}${c.q.fps != null ? `, ${c.q.fps} fps` : ""}`;
+      li.innerHTML = `<span class="sc">${c.q.width}×${c.q.height}</span><span class="nm">${esc(title(c))}</span>`;
       li.addEventListener("click", () => {
-        const m = markers.find(x => x.cam === c);
-        cluster.zoomToShowLayer(m, () => m.openPopup());
+        const m = markerFor.get(c);
+        if (cluster.hasLayer(m)) cluster.zoomToShowLayer(m, () => openViewer(c));
+        else { map.setView([c.lat, c.lon], 15); openViewer(c); }  // hidden by a filter
       });
       ul.appendChild(li);
     });
