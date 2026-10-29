@@ -49,6 +49,14 @@ Download links are looked up from the data.gov.tw metadata API on every run, so 
 
 Not included: Taipei City's road cameras. That dataset only has locations, and using Taipei's live traffic images requires an application to the city.
 
+### Camera map
+
+```bash
+python -m src.map
+```
+
+Builds `data/map.html` and opens it in your browser: every camera as a pin, clustered by area and coloured by type, with search (road, district or ID), filters by type and source, and a "best quality" list if you've run the scanner. Clicking a pin plays the live feed only while the popup is open; view-only cameras link to the agency's own page. Rebuild after fetching cameras or scanning again.
+
 ### Check camera quality
 
 ```bash
@@ -100,7 +108,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 - [x] Phase 1a: camera lists from open data (and optionally TDX)
 - [x] Phase 1b: camera quality scanner
-- [ ] Phase 1c: map every camera
+- [x] Phase 1c: camera map
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data
