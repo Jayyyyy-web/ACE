@@ -20,6 +20,14 @@ pip install -r requirements.txt
 cp .env.example .env            # then add your TDX keys
 ```
 
+## Usage
+
+```bash
+python -m src.feeds.tdx_auth             # check your TDX keys work
+python -m src.feeds.cameras              # fetch every camera in Taiwan -> data/cameras.json
+python -m src.feeds.cameras NewTaipei    # or just one or more cities
+```
+
 ## Roadmap
 
 - [ ] Phase 1: authenticate with TDX and map every camera
