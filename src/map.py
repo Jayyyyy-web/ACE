@@ -12,6 +12,9 @@ some camera servers (e.g. California's live video) refuse requests from
 pages without one. A tiny local server on your own computer fixes that.
 Press Ctrl+C to stop it.
 
+By default only live-video cameras are shown (MJPEG, HLS and city video
+players); tick them back on in the sidebar or use --include-stills.
+
 Clicking a pin opens the camera in a viewer that takes half the screen.
 By default only cameras measured at 720p or better are shown (needs a scan),
 plus cameras whose size is unknown. Use the sidebar to change that, or
@@ -47,7 +50,8 @@ def _embed(value) -> str:
     return text.replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
-def build(output: Path = OUTPUT_PATH, min_height: int = 720) -> tuple[Path, int, int]:
+def build(output: Path = OUTPUT_PATH, min_height: int = 720,
+          live_only: bool = True) -> tuple[Path, int, int]:
     if not CAMERAS_PATH.exists():
         raise SystemExit("data/cameras.json not found. Run: python -m src.feeds.cameras")
     cameras = json.loads(CAMERAS_PATH.read_text(encoding="utf-8"))
@@ -71,6 +75,7 @@ def build(output: Path = OUTPUT_PATH, min_height: int = 720) -> tuple[Path, int,
     html = html.replace("__CAMERAS__", _embed(records))
     html = html.replace("__GENERATED__", _embed(datetime.now().strftime("%Y-%m-%d %H:%M")))
     html = html.replace("__MIN_HEIGHT__", str(int(min_height)))
+    html = html.replace("__LIVE_ONLY__", "true" if live_only else "false")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html, encoding="utf-8")
@@ -106,9 +111,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--output", type=Path, default=OUTPUT_PATH)
     p.add_argument("--min-height", type=int, default=720, choices=[0, 480, 720, 1080],
                    help="starting picture-quality filter in pixels (default 720; 0 shows all)")
+    p.add_argument("--include-stills", action="store_true",
+                   help="start with still images and web pages shown too (default: live video only)")
     args = p.parse_args(argv)
 
-    path, n, scanned = build(args.output, args.min_height)
+    path, n, scanned = build(args.output, args.min_height, live_only=not args.include_stills)
     print(f"Map built with {n:,} cameras ({scanned:,} with scan results): {path}")
     if args.no_open:
         return

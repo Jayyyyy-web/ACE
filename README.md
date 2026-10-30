@@ -68,6 +68,8 @@ python -m src.map
 
 Builds `data/map.html`, serves it on `http://localhost:8765` and opens it in your browser. Press **Ctrl+C** in the terminal to stop. (It's served rather than opened as a file because some camera servers, like California's live video, refuse requests from pages without a web address. The server only listens on your own computer.) Use `--no-serve` to open the file directly, or `--no-open` to just build it.
 
+**Live video only** is on by default: the map shows cameras with moving video (MJPEG streams, HLS video and city video players). Untick it in the sidebar to also see still images and web pages, or start that way with `python -m src.map --include-stills`.
+
 Every camera is a pin, clustered by area and coloured by type, with search (road, place, state or ID), and filters by country, type and source. Each country has a **zoom** button.
 
 Click a pin and the camera opens in a viewer that takes half the screen (the bottom half on a phone). Live video (MJPEG and HLS) plays directly; still images refresh automatically. Use **‹ Prev / Next ›** or the `[` and `]` keys to flip through the cameras currently shown, and **Esc** to close. The feed stops as soon as you close or switch cameras.
@@ -141,10 +143,12 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 ## Credits
 
-- US camera list: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) by AidanWelch and contributors, MIT licence.
+- US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1.
 - Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.
 - Basemap: Esri, HERE, Garmin, © OpenStreetMap contributors.
+
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and terms.
 
 ## Roadmap
 

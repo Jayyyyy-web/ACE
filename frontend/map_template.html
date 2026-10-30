@@ -115,7 +115,9 @@
       <div class="note" id="qualityNote"></div>
 
       <h2>Show</h2>
-      <div id="types"></div>
+      <label class="row"><input type="checkbox" id="liveOnly"> <strong>Live video only</strong> <span class="n" id="liveN"></span></label>
+      <div class="note">Moving video: MJPEG streams, HLS video and city video players. Untick to also see still images and web pages.</div>
+      <div id="types" style="margin-top:8px"></div>
       <label class="row" id="onlineRow" hidden>
         <input type="checkbox" id="onlineOnly"> Online in last scan only
       </label>
@@ -157,6 +159,7 @@
 const CAMERAS = __CAMERAS__;
 const GENERATED = __GENERATED__;
 const DEFAULT_MIN_HEIGHT = __MIN_HEIGHT__;
+const DEFAULT_LIVE_ONLY = __LIVE_ONLY__;
 
 const TYPES = {
   stream: { label: "Live video", hex: "#4ea1ff" },
@@ -176,6 +179,12 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&l
 const title = c => [c.road, c.description].filter(Boolean).join(" · ") || c.id;
 const height = c => (c.q && c.q.status === "online" && c.q.height) ? c.q.height : null;
 const typeKey = c => c.category === "water" ? "water" : c.url_type;
+// Live = moving video. If a scan saw what the link actually serves, trust that
+// (e.g. a "stream" link that only returns a single still image isn't live).
+const isLive = c => {
+  if (c.q && c.q.status === "online" && c.q.kind) return c.q.kind === "mjpeg" || c.q.kind === "hls";
+  return c.url_type === "stream" || c.url_type === "hls" || c.url_type === "viewer";
+};
 
 // ---------- map ----------
 const map = L.map("map", { preferCanvas: true, maxZoom: 18 }).setView([23.75, 120.95], 8);
@@ -406,6 +415,7 @@ const COUNTRY_NAMES = { TWN: "Taiwan", USA: "United States", SGP: "Singapore", H
 const state = {
   q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), countries: new Set(),
   onlineOnly: false, minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
+  liveOnly: DEFAULT_LIVE_ONLY,
 };
 const sourceCounts = {};
 CAMERAS.forEach(c => { sourceCounts[c.source] = (sourceCounts[c.source] || 0) + 1; state.sources.add(c.source); });
@@ -452,6 +462,12 @@ Object.entries(countryCounts).sort((a, b) => b[1] - a[1]).forEach(([code, n]) =>
   countryBox.appendChild(row);
 });
 
+// Live video only
+const liveEl = document.getElementById("liveOnly");
+liveEl.checked = state.liveOnly;
+document.getElementById("liveN").textContent = CAMERAS.filter(isLive).length.toLocaleString();
+liveEl.addEventListener("change", () => { state.liveOnly = liveEl.checked; apply(); });
+
 // Quality controls
 const minResEl = document.getElementById("minRes");
 const unmeasuredEl = document.getElementById("unmeasured");
@@ -485,6 +501,7 @@ document.getElementById("q").addEventListener("input", e => {
 
 function visible(c) {
   if (!state.countries.has(c.country)) return false;
+  if (state.liveOnly && !isLive(c)) return false;
   if (!state.types.has(typeKey(c)) || !state.sources.has(c.source)) return false;
   if (state.onlineOnly && !(c.q && c.q.status === "online")) return false;
   if (state.minHeight > 0) {
@@ -512,7 +529,7 @@ function apply() {
 
 // ---------- sharpest list ----------
 if (hasScan) {
-  const best = CAMERAS.filter(c => height(c))
+  const best = CAMERAS.filter(c => height(c) && (!state.liveOnly || isLive(c)))
     .sort((a, b) => (b.q.score || 0) - (a.q.score || 0)).slice(0, 15);
   if (best.length) {
     document.getElementById("bestWrap").hidden = false;
