@@ -1,6 +1,6 @@
 # ACE
 
-A personal project that gathers public traffic camera feeds (official open data from Taiwan, plus US cameras from OpenTrafficCamMap) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
+A personal project that gathers public traffic camera feeds (official open data from Taiwan and Singapore, plus US cameras from OpenTrafficCamMap) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
 
 Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles.
 
@@ -26,9 +26,10 @@ pip install -r requirements.txt              # everything (large: includes PyTor
 No account or API key needed.
 
 ```bash
-python -m src.feeds.cameras                      # Taiwan open data + US cameras -> data/cameras.json
+python -m src.feeds.cameras                      # Taiwan + US + Singapore -> data/cameras.json
 python -m src.feeds.cameras --source opendata    # Taiwan only
 python -m src.feeds.cameras --source otcm        # US only
+python -m src.feeds.cameras --source sgp         # Singapore only
 python -m src.feeds.cameras --category traffic   # Taiwan road cameras only (US is all road cameras)
 ```
 
@@ -57,6 +58,8 @@ Not included: Taipei City's road cameras. That dataset only has locations, and u
 
 **United States** — [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) (MIT licence), a crowdsourced list of state DOT cameras: about 6,900 cameras across California, Ohio, Colorado, Indiana, Alabama, Alaska, Delaware, Kentucky, Arizona and Georgia. Its data was last updated in 2024, so some links are dead; the scanner finds which work. Cameras marked for review, at bad coordinates, or in agency-specific formats are skipped.
 
+**Singapore** — the Land Transport Authority's traffic images on [data.gov.sg](https://api.data.gov.sg/v1/transport/traffic-images), no key needed. Since about July 2026 this free API only serves 8 cameras (Woodlands Causeway, Tuas Second Link, Sentosa Gateway); the full ~90-camera network is only on LTA DataMall, which needs a registered key. All 8 are 1920×1080 stills refreshed about every 20 seconds. Each snapshot gets a new URL, so records keep the camera's `api_camera_id` and the map and scanner fetch the latest image from the API (format `UNIQUE_SINGAPORE_LTA`).
+
 ### Camera map
 
 ```bash
@@ -78,6 +81,7 @@ python -m src.feeds.scan --region new-taipei           # New Taipei area (includ
 python -m src.feeds.scan --category traffic            # all road cameras (slow with US included)
 python -m src.feeds.scan --country TWN                 # Taiwan only
 python -m src.feeds.scan --country USA --sample 300    # 300 random US cameras
+python -m src.feeds.scan --country SGP                 # Singapore
 ```
 
 Connects to each camera for a few seconds and records whether it's online, its resolution, frame rate and response time, then ranks them. HLS video is measured from its playlist. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel), merged with earlier scans so you can scan one country or area at a time. No footage is saved. Taiwan regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
@@ -139,6 +143,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 - US camera list: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) by AidanWelch and contributors, MIT licence.
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1.
+- Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.
 - Basemap: Esri, HERE, Garmin, © OpenStreetMap contributors.
 
 ## Roadmap
@@ -147,7 +152,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 - [x] Phase 1b: camera quality scanner
 - [x] Phase 1c: camera map
 - [x] Phase 1d: OpenTrafficCamMap format + US cameras
-- [ ] Phase 1e: Singapore
+- [x] Phase 1e: Singapore (free API: 8 cameras)
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data

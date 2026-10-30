@@ -290,8 +290,20 @@ def score(r: dict) -> float:
     return round(s, 1)
 
 
+def _current_url(cam: dict) -> str:
+    """Most cameras have a fixed URL. Singapore's change every snapshot, so
+    ask the API for the newest one."""
+    if cam.get("format") == "UNIQUE_SINGAPORE_LTA" and cam.get("api_camera_id"):
+        from src.feeds import sgp
+        try:
+            return sgp.latest_image_url(cam["api_camera_id"]) or cam["stream_url"]
+        except Exception:
+            return cam["stream_url"]
+    return cam["stream_url"]
+
+
 def probe(cam: dict) -> dict:
-    found = probe_url(cam["stream_url"])
+    found = probe_url(_current_url(cam))
     r = _result(cam, **found)
     r["score"] = score(r)
     return r

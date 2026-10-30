@@ -249,6 +249,22 @@ function playHls(c) {
   }
 }
 
+// Singapore's images get a new URL every snapshot, so ask data.gov.sg for
+// the latest one (the API allows requests from any site). Results are shared
+// for 15 seconds so flipping between cameras doesn't spam the API.
+const SG_API = "https://api.data.gov.sg/v1/transport/traffic-images";
+let sgCache = { at: 0, cams: null };
+async function sgLatestUrl(cameraId) {
+  if (!sgCache.cams || Date.now() - sgCache.at > 15000) {
+    const r = await fetch(SG_API);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const items = (await r.json()).items || [];
+    sgCache = { at: Date.now(), cams: items.length ? items[0].cameras : [] };
+  }
+  const cam = sgCache.cams.find(x => String(x.camera_id) === String(cameraId));
+  return cam ? cam.image : null;
+}
+
 function withCacheBuster(url) {
   return url + (url.includes("?") ? "&" : "?") + "_ace=" + Date.now();
 }
@@ -283,6 +299,10 @@ function showFeed(c) {
     playHls(c);
     return;
   }
+  if (c.format === "UNIQUE_SINGAPORE_LTA" && c.api_camera_id) {
+    showSingapore(c);
+    return;
+  }
   const src = inner || c.stream_url;
   const img = document.createElement("img");
   img.alt = `Live view of ${title(c)}`;
@@ -304,6 +324,28 @@ function showFeed(c) {
   }
 }
 
+function showSingapore(c) {
+  const img = document.createElement("img");
+  img.alt = `Live view of ${title(c)}`;
+  stage.appendChild(img);
+  const viewing = c;
+  const update = async () => {
+    try {
+      const url = await sgLatestUrl(c.api_camera_id);
+      if (current !== viewing) return;  // switched camera while waiting
+      if (!url) { stage.innerHTML = `<div class="v-msg">This camera isn't in Singapore's live feed right now. Try another one.</div>`; return; }
+      if (img.dataset.url !== url) {
+        img.dataset.url = url; img.src = url;
+        document.getElementById("vOpen").href = url;  // keep "Open source" current
+      }
+    } catch (e) {
+      if (!img.dataset.url) stage.innerHTML = FAIL_MSG;
+    }
+  };
+  update();
+  refreshTimer = setInterval(update, c.update_rate || 20000);
+}
+
 function openViewer(c) {
   current = c;
   document.body.classList.add("viewing");
@@ -311,7 +353,9 @@ function openViewer(c) {
   document.getElementById("vSub").textContent = c.id;
   document.getElementById("vOpen").href = c.stream_url;
 
-  const place = [c.region && c.region !== "other" ? c.region : null, COUNTRY_NAMES[c.country] || c.country].filter(Boolean).join(", ");
+  const countryName = COUNTRY_NAMES[c.country] || c.country;
+  const regionName = c.region && c.region !== "other" && c.region !== countryName ? c.region : null;
+  const place = [regionName, countryName].filter(Boolean).join(", ");
   const tags = [place, c.source, (TYPES[c.url_type] || {}).label || c.url_type];
   if (c.direction) tags.push(`dir ${c.direction}`);
   if (c.q && c.q.width) tags.push(`${c.q.width}×${c.q.height}`);

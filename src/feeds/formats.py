@@ -16,6 +16,7 @@ Every camera record has:
     encoding     JPEG | H.264 | None
     format       MJPEG | IMAGE_STREAM | M3U8 | WEB_PAGE | WEB_VIEWER
     update_rate  ms between image refreshes, if known
+    api_camera_id  (Singapore only) camera ID used to look up the latest image
     refresh_rate (older field, kept for compatibility)
 """
 
@@ -38,6 +39,8 @@ FORMAT_TO_URL_TYPE = {
     "MJPEG": "stream",
     "WEB_PAGE": "page",
     "WEB_VIEWER": "viewer",
+    # Image whose URL changes every snapshot; ask data.gov.sg for the latest.
+    "UNIQUE_SINGAPORE_LTA": "image",
 }
 
 # Taiwan's OpenStreetMap admin-level-4 names (cities and counties).

@@ -3,6 +3,7 @@
 Default sources need no account or key:
   opendata  Taiwan government open data (data.gov.tw)
   otcm      OpenTrafficCamMap's crowdsourced US camera list (MIT licence)
+  sgp       Singapore LTA traffic images (data.gov.sg)
 Optional:
   tdx       Taiwan TDX (needs keys in .env)
 
@@ -12,9 +13,10 @@ flat data/cameras.json, a per-country copy in OpenTrafficCamMap's nested
 layout is written to data/cameras/<COUNTRY>.json.
 
 Examples:
-    python -m src.feeds.cameras                          # open data + US cameras
+    python -m src.feeds.cameras                          # Taiwan + US + Singapore
     python -m src.feeds.cameras --source opendata        # Taiwan only
     python -m src.feeds.cameras --source otcm            # US only
+    python -m src.feeds.cameras --source sgp             # Singapore only
     python -m src.feeds.cameras --category traffic       # Taiwan road cameras + US
     python -m src.feeds.cameras --source opendata tdx    # Taiwan open data + TDX
     python -m src.feeds.cameras --source tdx --city NewTaipei Taoyuan
@@ -28,7 +30,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from src.feeds import opendata, otcm
+from src.feeds import opendata, otcm, sgp
 from src.feeds.formats import with_format
 
 OUTPUT_PATH = Path("data/cameras.json")
@@ -86,21 +88,23 @@ def export_by_country(cameras: list[dict], folder: Path = COUNTRY_DIR) -> list[P
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fetch public camera lists.")
-    parser.add_argument("--source", nargs="+", choices=["opendata", "otcm", "tdx", "all"],
-                        default=["opendata", "otcm"],
-                        help="sources to use (default: opendata otcm; no keys needed)")
+    parser.add_argument("--source", nargs="+", choices=["opendata", "otcm", "sgp", "tdx", "all"],
+                        default=["opendata", "otcm", "sgp"],
+                        help="sources to use (default: opendata otcm sgp; no keys needed)")
     parser.add_argument("--category", choices=["traffic", "water"], action="append",
                         help="limit Taiwan open-data sources to a category (can repeat)")
     parser.add_argument("--city", nargs="+", help="TDX only: city codes such as NewTaipei Taoyuan")
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     args = parser.parse_args(argv)
 
-    sources = {"opendata", "otcm", "tdx"} if "all" in args.source else set(args.source)
+    sources = {"opendata", "otcm", "sgp", "tdx"} if "all" in args.source else set(args.source)
     cameras: list[dict] = []
     if "opendata" in sources:
         cameras += opendata.fetch_all(set(args.category) if args.category else None)
     if "otcm" in sources:
         cameras += otcm.fetch_all()
+    if "sgp" in sources:
+        cameras += sgp.fetch_all()
     if "tdx" in sources:
         cameras += _fetch_tdx(args.city)
 

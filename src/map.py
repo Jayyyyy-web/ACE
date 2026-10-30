@@ -37,7 +37,8 @@ OUTPUT_PATH = Path("data/map.html")
 
 QUALITY_FIELDS = ("status", "kind", "width", "height", "fps", "score", "probed_url")
 CAMERA_FIELDS = ("id", "source", "category", "country", "region", "road", "direction",
-                 "description", "lat", "lon", "stream_url", "url_type", "format", "update_rate")
+                 "description", "lat", "lon", "stream_url", "url_type", "format", "update_rate",
+                 "api_camera_id")
 
 
 def _embed(value) -> str:
