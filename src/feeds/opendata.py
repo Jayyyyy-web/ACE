@@ -161,7 +161,9 @@ def _decode(raw: bytes, declared: str) -> str:
 
 
 def _parse_csv(text: str) -> list[dict]:
-    return list(csv.DictReader(io.StringIO(text)))
+    # newline="" lets the csv module handle any line ending (\r\n, \n or a
+    # bare \r, which some agencies' files use).
+    return list(csv.DictReader(io.StringIO(text, newline="")))
 
 
 def _parse_json(text: str) -> list[dict]:
@@ -323,8 +325,8 @@ def fetch_all(categories: set[str] | None = None) -> list[dict]:
         print(f"Fetching {source.label} ({source.key})...")
         try:
             cameras = fetch_source(source)
-        except (OpenDataError, requests.RequestException, ET.ParseError, ValueError) as e:
-            print(f"  ! skipped: {e}")
+        except Exception as e:  # one bad source must never stop the whole run
+            print(f"  ! skipped: {type(e).__name__}: {e}")
             continue
         print(f"  {len(cameras)} cameras")
         all_cameras.extend(cameras)
