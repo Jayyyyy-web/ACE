@@ -27,6 +27,7 @@ No account or API key needed.
 
 ```bash
 python -m src.feeds.cameras                      # Taiwan + US + Singapore -> data/cameras.json
+python -m src.feeds.cameras --source ora         # US live video (Ora) only
 python -m src.feeds.cameras --source opendata    # Taiwan only
 python -m src.feeds.cameras --source otcm        # US only
 python -m src.feeds.cameras --source sgp         # Singapore only
@@ -57,6 +58,8 @@ Download links are looked up from the data.gov.tw metadata API on every run, so 
 Not included: Taipei City's road cameras. That dataset only has locations, and using Taipei's live traffic images requires an application to the city.
 
 **United States** — [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) (MIT licence), a crowdsourced list of state DOT cameras: about 6,900 cameras across California, Ohio, Colorado, Indiana, Alabama, Alaska, Delaware, Kentucky, Arizona and Georgia. Its data was last updated in 2024, so some links are dead; the scanner finds which work. Cameras marked for review, at bad coordinates, or in agency-specific formats are skipped.
+
+**United States — live video from [Ora](https://github.com/warner-wvez/Ora)** (PolyForm Noncommercial licence; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). About 11,900 state DOT live HLS streams across 17 states (Colorado, Delaware, Hawaii, Iowa, Indiana, Louisiana, Maryland, Minnesota, Missouri, Mississippi, Nevada, New York, Oklahoma, South Carolina, Tennessee, Wisconsin, West Virginia). Only states whose agencies serve video openly are used; Florida, North Carolina, New Jersey, Pennsylvania and Texas lock their streams to their own sites and are skipped. Ora's offline/frozen cameras, snapshot-only views and bad coordinates are dropped. Where Ora and OpenTrafficCamMap list the same stream, Ora's newer record is kept.
 
 **United States — optional `saat` source (off by default).** DOT feeds (SCDOT, VDOT, DDOT, Maryland SHA, Montgomery County) whose compiled list comes from [seeallthethings](https://github.com/baywolf88/seeallthethings). ACE imports only those government feeds and refuses that list's private/unsecured-camera references (Insecam, Shodan). The list is from 2018 and its links are now dead (expired tokens, retired camera IPs), so it is not fetched by default; enable it with `python -m src.feeds.cameras --source opendata otcm sgp saat` if you want it anyway.
 
@@ -145,6 +148,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 ## Credits
 
+- US live-video stream list: [Ora](https://github.com/warner-wvez/Ora), Copyright (c) 2026 Warner Varnado, PolyForm Noncommercial 1.0.0. Full text in [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt).
 - US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1.
 - Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.

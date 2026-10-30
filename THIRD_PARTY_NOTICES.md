@@ -36,6 +36,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Ora — PolyForm Noncommercial License 1.0.0
+
+- Project: https://github.com/warner-wvez/Ora
+- Required Notice: Copyright (c) 2026 Warner Varnado (https://warner-wvez.github.io/Ora/)
+- Used for: the list of US state DOT live-video streams (downloaded by
+  `src/feeds/ora.py` at run time, not copied into this repo). ACE uses only
+  the states Ora marks as playing openly, and skips states whose streams are
+  locked to the agency's own site.
+- Licence terms: personal and other non-commercial use only. ACE is a personal,
+  non-commercial project. Anyone reusing ACE commercially must remove the Ora
+  source or get permission from its author.
+- Full licence text: [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt)
+
 ## Government open data
 
 - **Taiwan** camera lists: data.gov.tw, Open Government Data License, version 1
