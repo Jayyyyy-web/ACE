@@ -4,7 +4,10 @@ Default sources need no account or key:
   opendata  Taiwan government open data (data.gov.tw)
   otcm      OpenTrafficCamMap's crowdsourced US camera list (MIT licence)
   sgp       Singapore LTA traffic images (data.gov.sg)
-Optional:
+
+Off by default (opt in with --source):
+  saat      US DOT cameras from the seeallthethings list (SCDOT/VDOT/DDOT/SHA).
+            A 2018 list whose links are now dead; kept for completeness.
   tdx       Taiwan TDX (needs keys in .env)
 
 Every camera follows OpenTrafficCamMap's conventions (country, region,
@@ -30,7 +33,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from src.feeds import opendata, otcm, sgp
+from src.feeds import opendata, otcm, saat, sgp
 from src.feeds.formats import with_format
 
 OUTPUT_PATH = Path("data/cameras.json")
@@ -88,7 +91,8 @@ def export_by_country(cameras: list[dict], folder: Path = COUNTRY_DIR) -> list[P
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fetch public camera lists.")
-    parser.add_argument("--source", nargs="+", choices=["opendata", "otcm", "sgp", "tdx", "all"],
+    parser.add_argument("--source", nargs="+",
+                        choices=["opendata", "otcm", "sgp", "saat", "tdx", "all"],
                         default=["opendata", "otcm", "sgp"],
                         help="sources to use (default: opendata otcm sgp; no keys needed)")
     parser.add_argument("--category", choices=["traffic", "water"], action="append",
@@ -97,7 +101,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     args = parser.parse_args(argv)
 
-    sources = {"opendata", "otcm", "sgp", "tdx"} if "all" in args.source else set(args.source)
+    sources = ({"opendata", "otcm", "sgp", "saat", "tdx"} if "all" in args.source
+               else set(args.source))
     cameras: list[dict] = []
     if "opendata" in sources:
         cameras += opendata.fetch_all(set(args.category) if args.category else None)
@@ -105,6 +110,8 @@ def main(argv: list[str] | None = None) -> None:
         cameras += otcm.fetch_all()
     if "sgp" in sources:
         cameras += sgp.fetch_all()
+    if "saat" in sources:
+        cameras += saat.fetch_all()
     if "tdx" in sources:
         cameras += _fetch_tdx(args.city)
 

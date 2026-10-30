@@ -42,6 +42,12 @@ SOFTWARE.
   (https://data.gov.tw/license).
 - **Singapore** traffic images: Land Transport Authority via data.gov.sg,
   Singapore Open Data Licence (https://data.gov.sg/open-data-licence).
+- **United States (optional `saat` source):** department-of-transportation
+  camera feeds — SCDOT, VDOT, DDOT, Maryland SHA and Montgomery County —
+  whose compiled list comes from https://github.com/baywolf88/seeallthethings
+  (no stated licence; last updated 2018). ACE imports only those DOT feeds and
+  excludes that list's references to private/unsecured cameras (Insecam,
+  Shodan). The underlying feeds belong to the transport agencies.
 - Camera images and video stay the property of the agencies that publish
   them. ACE links to them and does not store or redistribute footage.
 

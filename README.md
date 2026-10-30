@@ -58,6 +58,8 @@ Not included: Taipei City's road cameras. That dataset only has locations, and u
 
 **United States** — [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) (MIT licence), a crowdsourced list of state DOT cameras: about 6,900 cameras across California, Ohio, Colorado, Indiana, Alabama, Alaska, Delaware, Kentucky, Arizona and Georgia. Its data was last updated in 2024, so some links are dead; the scanner finds which work. Cameras marked for review, at bad coordinates, or in agency-specific formats are skipped.
 
+**United States — optional `saat` source (off by default).** DOT feeds (SCDOT, VDOT, DDOT, Maryland SHA, Montgomery County) whose compiled list comes from [seeallthethings](https://github.com/baywolf88/seeallthethings). ACE imports only those government feeds and refuses that list's private/unsecured-camera references (Insecam, Shodan). The list is from 2018 and its links are now dead (expired tokens, retired camera IPs), so it is not fetched by default; enable it with `python -m src.feeds.cameras --source opendata otcm sgp saat` if you want it anyway.
+
 **Singapore** — the Land Transport Authority's traffic images on [data.gov.sg](https://api.data.gov.sg/v1/transport/traffic-images), no key needed. Since about July 2026 this free API only serves 8 cameras (Woodlands Causeway, Tuas Second Link, Sentosa Gateway); the full ~90-camera network is only on LTA DataMall, which needs a registered key. All 8 are 1920×1080 stills refreshed about every 20 seconds. Each snapshot gets a new URL, so records keep the camera's `api_camera_id` and the map and scanner fetch the latest image from the API (format `UNIQUE_SINGAPORE_LTA`).
 
 ### Camera map
