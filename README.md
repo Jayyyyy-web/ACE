@@ -1,6 +1,6 @@
 # ACE
 
-A personal project that gathers public traffic camera feeds (official open data from Taiwan and Singapore, plus US cameras from OpenTrafficCamMap) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
+A personal project that gathers public live traffic camera feeds (official open data from Taiwan and Singapore, US state DOT cameras, and official city and transport-agency streams in South Korea, Indonesia, Japan, Macau, Türkiye and Russia) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
 
 Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles.
 
@@ -26,7 +26,8 @@ pip install -r requirements.txt              # everything (large: includes PyTor
 No account or API key needed.
 
 ```bash
-python -m src.feeds.cameras                      # Taiwan + US + Singapore -> data/cameras.json
+python -m src.feeds.cameras                      # every default source -> data/cameras.json
+python -m src.feeds.cameras --source argus owa   # the worldwide live sources only
 python -m src.feeds.cameras --source ora         # US live video (Ora) only
 python -m src.feeds.cameras --source opendata    # Taiwan only
 python -m src.feeds.cameras --source otcm        # US only
@@ -62,6 +63,12 @@ Not included: Taipei City's road cameras. That dataset only has locations, and u
 **United States — live video from [Ora](https://github.com/warner-wvez/Ora)** (PolyForm Noncommercial licence; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). About 11,900 state DOT live HLS streams across 17 states (Colorado, Delaware, Hawaii, Iowa, Indiana, Louisiana, Maryland, Minnesota, Missouri, Mississippi, Nevada, New York, Oklahoma, South Carolina, Tennessee, Wisconsin, West Virginia). Only states whose agencies serve video openly are used; Florida, North Carolina, New Jersey, Pennsylvania and Texas lock their streams to their own sites and are skipped. Ora's offline/frozen cameras, snapshot-only views and bad coordinates are dropped. Where Ora and OpenTrafficCamMap list the same stream, Ora's newer record is kept.
 
 **United States — optional `saat` source (off by default).** DOT feeds (SCDOT, VDOT, DDOT, Maryland SHA, Montgomery County) whose compiled list comes from [seeallthethings](https://github.com/baywolf88/seeallthethings). ACE imports only those government feeds and refuses that list's private/unsecured-camera references (Insecam, Shodan). The list is from 2018 and its links are now dead (expired tokens, retired camera IPs), so it is not fetched by default; enable it with `python -m src.feeds.cameras --source opendata otcm sgp saat` if you want it anyway.
+
+**Worldwide official live video — [Argus](https://github.com/GoSlowPoke168/Argus)** (MIT). Argus lists about 229,000 cameras from many kinds of sources. ACE takes only live video (HLS/MJPEG) from an explicit allowlist of official publishers in `src/feeds/argus.py`, and only when the stream is served from that publisher's own domain: city ITS centres in South Korea (Seoul, Busan, Ulsan, Daegu, Pohang, Changwon, Gwangju, Ansan, Chungju), local governments and Jasa Marga toll roads in Indonesia, the Japan Coast Guard, Macau's DSAT, Istanbul's municipality, Taiwan's Freeway Bureau, and US agencies such as Virginia DOT, Arlington County and the New Jersey Turnpike Authority. Commercial webcam companies, TV stations, bare-IP and dynamic-DNS hosts are excluded, and two sources whose links had all gone dead (Yogyakarta Province, Thailand's ITIC) were dropped. About 13,800 streams after removing duplicates; the list is cached in `data/cache/` for a week.
+
+**Krasnoyarsk and YouTube live — [open-webcam-atlas](https://github.com/jaydenbarnescs-tech/open-webcam-atlas)** (MIT). Adds Krasnoyarsk's 281 city cameras (cam.krk.ru, CC BY-SA) and YouTube live streams: Kyoto's 23 official tourism cameras plus public live streams tagged on OpenStreetMap. YouTube streams play only through YouTube's own embed player and are view-only (the scanner and any analysis skip them); each run checks YouTube's oEmbed endpoint and drops videos that are gone or not embeddable.
+
+In browser tests, live video played from Bantul (1920×1080), Yogyakarta City (1280×720), Daegu, Pohang, Tasikmalaya, Bondowoso, Macau, Virginia and the NJ Turnpike. Some others (Seoul, Busan, Ulsan, the coast guard, Arlington, Krasnoyarsk) couldn't be reached from the test environment's network; run the scanner to see which work from yours.
 
 **Singapore** — the Land Transport Authority's traffic images on [data.gov.sg](https://api.data.gov.sg/v1/transport/traffic-images), no key needed. Since about July 2026 this free API only serves 8 cameras (Woodlands Causeway, Tuas Second Link, Sentosa Gateway); the full ~90-camera network is only on LTA DataMall, which needs a registered key. All 8 are 1920×1080 stills refreshed about every 20 seconds. Each snapshot gets a new URL, so records keep the camera's `api_camera_id` and the map and scanner fetch the latest image from the API (format `UNIQUE_SINGAPORE_LTA`).
 
@@ -137,6 +144,7 @@ Records follow [OpenTrafficCamMap's conventions](https://github.com/AidanWelch/O
 | `hls` | `M3U8` | live H.264 video (HLS) |
 | `page` | `WEB_PAGE` | a web page that embeds the camera |
 | `viewer` | `WEB_VIEWER` | an agency's official viewer page |
+| `youtube` | `YOUTUBE_EMBED` | a YouTube live stream, shown only through YouTube's embed player |
 
 `MJPEG`, `WEB_PAGE` and `WEB_VIEWER` aren't in OpenTrafficCamMap's format list yet; its README says the list should be added to.
 
@@ -150,6 +158,8 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 - US live-video stream list: [Ora](https://github.com/warner-wvez/Ora), Copyright (c) 2026 Warner Varnado, PolyForm Noncommercial 1.0.0. Full text in [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt).
 - US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
+- Worldwide official live streams: [Argus](https://github.com/GoSlowPoke168/Argus), Copyright (c) 2026 Jeremy Hou, MIT licence ([`licenses/Argus-MIT.txt`](licenses/Argus-MIT.txt)); the streams belong to their publishing agencies.
+- Krasnoyarsk cameras and YouTube live list: [open-webcam-atlas](https://github.com/jaydenbarnescs-tech/open-webcam-atlas), Copyright (c) 2026 Jayden Barnes, MIT licence ([`licenses/open-webcam-atlas-MIT.txt`](licenses/open-webcam-atlas-MIT.txt)); Krasnoyarsk cameras: cam.krk.ru, CC BY-SA.
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1.
 - Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.
 - Basemap: Esri, HERE, Garmin, © OpenStreetMap contributors.
@@ -163,6 +173,7 @@ See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and term
 - [x] Phase 1c: camera map
 - [x] Phase 1d: OpenTrafficCamMap format + US cameras
 - [x] Phase 1e: Singapore (free API: 8 cameras)
+- [x] Phase 1f: US live video (Ora) and worldwide official live video (Argus, open-webcam-atlas)
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data

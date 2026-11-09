@@ -167,6 +167,7 @@ const TYPES = {
   hls:    { label: "Live video (HLS)", hex: "#ff6b9a" },
   page:   { label: "Web page", hex: "#f4a261" },
   viewer: { label: "City viewer", hex: "#b583ff" },
+  youtube: { label: "YouTube live (view only)", hex: "#ff4d4d" },
 };
 const WATER_HEX = "#3ddc97";
 const OFFLINE_HEX = "#5c6470";
@@ -183,7 +184,7 @@ const typeKey = c => c.category === "water" ? "water" : c.url_type;
 // (e.g. a "stream" link that only returns a single still image isn't live).
 const isLive = c => {
   if (c.q && c.q.status === "online" && c.q.kind) return c.q.kind === "mjpeg" || c.q.kind === "hls";
-  return c.url_type === "stream" || c.url_type === "hls" || c.url_type === "viewer";
+  return c.url_type === "stream" || c.url_type === "hls" || c.url_type === "viewer" || c.url_type === "youtube";
 };
 
 // ---------- map ----------
@@ -293,6 +294,18 @@ function showFeed(c) {
   const inner = c.q && c.q.status === "online" && c.q.probed_url && c.q.probed_url !== c.stream_url
     && (c.q.kind === "mjpeg" || c.q.kind === "image") ? c.q.probed_url : null;
 
+  if (c.url_type === "youtube") {
+    // YouTube live streams play only through YouTube's own embed player.
+    const [w, h] = [800, 450];
+    const fr = document.createElement("iframe");
+    Object.assign(fr, { width: w, height: h, title: `Live view of ${title(c)}` });
+    fr.dataset.w = w; fr.dataset.h = h;
+    fr.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    fr.allowFullscreen = true;
+    stage.appendChild(fr);
+    setTimeout(() => { fitFrame(); fr.src = c.stream_url + "?autoplay=1&mute=1&playsinline=1"; }, 220);
+    return;
+  }
   if ((c.url_type === "viewer" || c.url_type === "page") && !inner) {
     const [w, h] = FRAME_SIZE[c.source] || FRAME_SIZE.default;
     const fr = document.createElement("iframe");
@@ -360,12 +373,13 @@ function openViewer(c) {
   document.body.classList.add("viewing");
   document.getElementById("vTitle").textContent = title(c);
   document.getElementById("vSub").textContent = c.id;
-  document.getElementById("vOpen").href = c.stream_url;
+  const ytId = c.url_type === "youtube" ? (c.stream_url.match(/\/embed\/([\w-]+)/) || [])[1] : null;
+  document.getElementById("vOpen").href = ytId ? `https://www.youtube.com/watch?v=${ytId}` : c.stream_url;
 
   const countryName = COUNTRY_NAMES[c.country] || c.country;
   const regionName = c.region && c.region !== "other" && c.region !== countryName ? c.region : null;
   const place = [regionName, countryName].filter(Boolean).join(", ");
-  const tags = [place, c.source, (TYPES[c.url_type] || {}).label || c.url_type];
+  const tags = [place, c.publisher || c.source, (TYPES[c.url_type] || {}).label || c.url_type];
   if (c.direction) tags.push(`dir ${c.direction}`);
   if (c.q && c.q.width) tags.push(`${c.q.width}×${c.q.height}`);
   if (c.q && c.q.fps != null) tags.push(`${c.q.fps} fps`);
@@ -411,7 +425,11 @@ document.addEventListener("keydown", e => {
 window.addEventListener("resize", fitFrame);
 
 // ---------- filters ----------
-const COUNTRY_NAMES = { TWN: "Taiwan", USA: "United States", SGP: "Singapore", HKG: "Hong Kong", FIN: "Finland" };
+const COUNTRY_NAMES = {
+  TWN: "Taiwan", USA: "United States", SGP: "Singapore", HKG: "Hong Kong", FIN: "Finland",
+  KOR: "South Korea", IDN: "Indonesia", JPN: "Japan", MAC: "Macau", TUR: "Türkiye",
+  THA: "Thailand", RUS: "Russia", GBR: "United Kingdom", other: "Other (worldwide)",
+};
 const state = {
   q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), countries: new Set(),
   onlineOnly: false, minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
@@ -509,7 +527,7 @@ function visible(c) {
     if (h == null ? !state.unmeasured : h < state.minHeight) return false;
   }
   if (state.q) {
-    const hay = `${c.id} ${c.road || ""} ${c.description || ""} ${c.source} ${c.region || ""}`.toLowerCase();
+    const hay = `${c.id} ${c.road || ""} ${c.description || ""} ${c.source} ${c.region || ""} ${c.publisher || ""}`.toLowerCase();
     if (!hay.includes(state.q)) return false;
   }
   return true;

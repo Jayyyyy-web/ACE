@@ -12,9 +12,9 @@ Every camera record has:
     county       district / county inside the region ("other" if unknown)
     road, direction, description, lat, lon,
     stream_url,
-    url_type     how ACE opens it: stream | image | hls | page | viewer
+    url_type     how ACE opens it: stream | image | hls | page | viewer | youtube
     encoding     JPEG | H.264 | None
-    format       MJPEG | IMAGE_STREAM | M3U8 | WEB_PAGE | WEB_VIEWER
+    format       MJPEG | IMAGE_STREAM | M3U8 | WEB_PAGE | WEB_VIEWER | YOUTUBE_EMBED
     update_rate  ms between image refreshes, if known
     api_camera_id  (Singapore only) camera ID used to look up the latest image
     refresh_rate (older field, kept for compatibility)
@@ -31,6 +31,7 @@ URL_TYPE_FORMATS = {
     "hls": ("H.264", "M3U8"),
     "page": (None, "WEB_PAGE"),
     "viewer": (None, "WEB_VIEWER"),
+    "youtube": ("H.264", "YOUTUBE_EMBED"),
 }
 
 FORMAT_TO_URL_TYPE = {
@@ -41,6 +42,8 @@ FORMAT_TO_URL_TYPE = {
     "WEB_VIEWER": "viewer",
     # Image whose URL changes every snapshot; ask data.gov.sg for the latest.
     "UNIQUE_SINGAPORE_LTA": "image",
+    # A YouTube live stream, played only through YouTube's own embed player.
+    "YOUTUBE_EMBED": "youtube",
 }
 
 # Taiwan's OpenStreetMap admin-level-4 names (cities and counties).

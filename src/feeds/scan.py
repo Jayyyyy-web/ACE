@@ -321,8 +321,11 @@ def _in_region(cam: dict, region: str) -> bool:
 def select(cameras: list[dict], args) -> list[dict]:
     # "viewer" cameras are official web pages for people to open in a
     # browser; we don't pull video from them automatically.
-    viewers = [c for c in cameras if c.get("url_type") == "viewer"]
-    out = [c for c in cameras if c.get("url_type") != "viewer"]
+    # The same goes for YouTube live streams, which ACE only ever shows through
+    # YouTube's own embed player.
+    view_only = ("viewer", "youtube")
+    viewers = [c for c in cameras if c.get("url_type") in view_only]
+    out = [c for c in cameras if c.get("url_type") not in view_only]
     if viewers:
         print(f"Skipping {len(viewers)} view-only cameras (open those in a browser).")
     if args.country:
