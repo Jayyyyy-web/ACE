@@ -118,10 +118,20 @@
       <h2>Show</h2>
       <label class="row"><input type="checkbox" id="liveOnly"> <strong>Live video only</strong> <span class="n" id="liveN"></span></label>
       <div class="note">Moving video: MJPEG streams, HLS video and city video players. Untick to also see still images and web pages.</div>
+      <div id="liveTest" hidden>
+        <label class="row" style="margin-top:8px"><input type="checkbox" id="testedOnly"> <strong>Tested live only</strong> <span class="n" id="testedN"></span></label>
+        <div class="note">Only cameras your last scan found live: new video kept arriving, nothing frozen or pre-recorded. YouTube streams and city viewers can't be tested, so they show only when this is off.</div>
+        <label for="maxDelay" class="note" style="display:block;margin:10px 0 4px">How far behind real time</label>
+        <select id="maxDelay">
+          <option value="5">Real time (up to 5 s behind)</option>
+          <option value="10">Up to 10 s behind</option>
+          <option value="15">Up to 15 s behind</option>
+          <option value="30">Up to 30 s behind</option>
+          <option value="0">Any delay</option>
+        </select>
+        <div class="note">MJPEG video (blue) is real time. HLS video (pink) arrives in chunks, so it runs one chunk plus a couple of seconds behind; the scanner measures each camera.</div>
+      </div>
       <div id="types" style="margin-top:8px"></div>
-      <label class="row" id="onlineRow" hidden>
-        <input type="checkbox" id="onlineOnly"> Online in last scan only
-      </label>
 
       <h2>Sources</h2>
       <div id="sources"></div>
@@ -162,6 +172,8 @@ const CAMERAS = __CAMERAS__;
 const GENERATED = __GENERATED__;
 const DEFAULT_MIN_HEIGHT = __MIN_HEIGHT__;
 const DEFAULT_LIVE_ONLY = __LIVE_ONLY__;
+const DEFAULT_TESTED_ONLY = __TESTED_ONLY__;
+const DEFAULT_MAX_DELAY = __MAX_DELAY__;
 
 const TYPES = {
   stream: { label: "Live video", hex: "#4ea1ff" },
@@ -182,11 +194,21 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&l
 const title = c => [c.road, c.description].filter(Boolean).join(" · ") || c.id;
 const height = c => (c.q && c.q.status === "online" && c.q.height) ? c.q.height : null;
 const typeKey = c => c.category === "water" ? "water" : c.url_type;
-// Live = moving video. If a scan saw what the link actually serves, trust that
-// (e.g. a "stream" link that only returns a single still image isn't live).
+// Live = moving video. If a scan tested the camera, trust the test: it must
+// have been online and kept sending new video (not frozen, not a recording,
+// not a still image).
 const isLive = c => {
-  if (c.q && c.q.status === "online" && c.q.kind) return c.q.kind === "mjpeg" || c.q.kind === "hls";
+  if (c.q && c.q.kind) {
+    return c.q.status === "online" && (c.q.kind === "mjpeg" || c.q.kind === "hls") && c.q.live !== false;
+  }
   return c.url_type === "stream" || c.url_type === "hls" || c.url_type === "viewer" || c.url_type === "youtube";
+};
+const tested = c => !!(c.q && c.q.kind && isLive(c));
+// Seconds behind real time in the viewer: MJPEG is real time; HLS as measured.
+const delayOf = c => {
+  if (!c.q || c.q.status !== "online") return null;
+  if (c.q.kind === "mjpeg") return 1;
+  return c.q.kind === "hls" && c.q.delay_s != null ? c.q.delay_s : null;
 };
 
 // ---------- map ----------
@@ -232,9 +254,11 @@ const stage = document.getElementById("vStage");
 
 let hls = null;
 let refreshTimer = null;
+let delayTimer = null;
 
 function stopFeed() {
   clearInterval(refreshTimer); refreshTimer = null;
+  clearInterval(delayTimer); delayTimer = null;
   if (hls) { hls.destroy(); hls = null; }
   stage.querySelectorAll("video").forEach(v => { v.pause(); v.removeAttribute("src"); v.load(); });
   stage.querySelectorAll("img").forEach(i => i.removeAttribute("src"));
@@ -244,15 +268,43 @@ function stopFeed() {
 
 const FAIL_MSG = `<div class="v-msg">Couldn't load this camera. It may be offline, or its server doesn't allow playback from other sites. Try “Open source” or another camera.</div>`;
 
+// HLS servers publish video in chunks (2-17 s on these cameras). hls.js
+// normally starts three chunks behind the newest one: 30-60 s behind real
+// time on 10-second chunks. ACE sits one chunk plus 2 s behind (smooth in
+// tests), using the chunk length the scanner measured; untested cameras
+// start two chunks behind. If playback falls behind, it speeds up slightly
+// to catch up.
+function hlsConfig(c) {
+  const base = { lowLatencyMode: true, maxBufferLength: 10, maxLiveSyncPlaybackRate: 1.5 };
+  const chunk = c.q && c.q.segment_s;
+  return chunk
+    ? { ...base, liveSyncDuration: chunk + 2, liveMaxLatencyDuration: 3 * chunk + 4 }
+    : { ...base, liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5 };
+}
+
+function showDelay(text) {
+  const el = document.getElementById("vDelay");
+  if (el) el.textContent = text;
+}
+
 function playHls(c) {
   const video = document.createElement("video");
   Object.assign(video, { muted: true, autoplay: true, playsInline: true, controls: true });
   stage.appendChild(video);
   if (window.Hls && Hls.isSupported()) {
-    hls = new Hls({ lowLatencyMode: true, maxBufferLength: 10 });
+    hls = new Hls(hlsConfig(c));
     hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { stopFeed(); stage.innerHTML = FAIL_MSG; } });
     hls.loadSource(c.stream_url);
     hls.attachMedia(video);
+    // Live readout: how far behind the newest video we're playing. When the
+    // server stamps its video with the time it was filmed, use that instead.
+    const player = hls;
+    delayTimer = setInterval(() => {
+      if (player !== hls || video.readyState < 2) return;
+      const filmed = player.playingDate;
+      const behind = filmed ? (Date.now() - filmed.getTime()) / 1000 : player.latency;
+      if (behind > 0 && behind < 600) showDelay(`● live · ${Math.round(behind)} s behind`);
+    }, 1000);
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = c.stream_url;  // Safari plays HLS natively
     video.onerror = () => { stage.innerHTML = FAIL_MSG; };
@@ -399,7 +451,12 @@ function openViewer(c) {
   if (c.q && c.q.width) tags.push(`${c.q.width}×${c.q.height}`);
   if (c.q && c.q.fps != null) tags.push(`${c.q.fps} fps`);
   if (c.q && c.q.status && c.q.status !== "online") tags.push(`last scan: ${c.q.status}`);
-  document.getElementById("vTags").innerHTML = tags.map(t => `<span class="tag">${esc(t)}</span>`).join("");
+  document.getElementById("vTags").innerHTML = tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")
+    + `<span class="tag" id="vDelay"></span>`;
+  const playsHls = c.url_type === "hls" || (c.q && c.q.kind === "hls");
+  showDelay(playsHls ? (c.q && c.q.delay_s ? `● live · about ${Math.round(c.q.delay_s)} s behind` : "● live (HLS)")
+    : (c.q && c.q.kind === "mjpeg" && c.q.live !== false) || (!c.q && c.url_type === "stream") ? "● live · real time" : "");
+  document.getElementById("vDelay").hidden = !document.getElementById("vDelay").textContent;
 
   showFeed(c);
 
@@ -447,8 +504,9 @@ const COUNTRY_NAMES = {
 };
 const state = {
   q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), countries: new Set(),
-  onlineOnly: false, minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
+  minHeight: hasScan ? DEFAULT_MIN_HEIGHT : 0, unmeasured: true,
   liveOnly: DEFAULT_LIVE_ONLY,
+  testedOnly: hasScan && DEFAULT_TESTED_ONLY, maxDelay: DEFAULT_MAX_DELAY,
 };
 const sourceCounts = {};
 CAMERAS.forEach(c => { sourceCounts[c.source] = (sourceCounts[c.source] || 0) + 1; state.sources.add(c.source); });
@@ -515,9 +573,16 @@ if (!hasScan) { minResEl.disabled = true; unmeasuredEl.disabled = true; }
 minResEl.addEventListener("change", () => { state.minHeight = +minResEl.value; apply(); });
 unmeasuredEl.addEventListener("change", () => { state.unmeasured = unmeasuredEl.checked; apply(); });
 
+// Live test (needs scan results)
 if (hasScan) {
-  document.getElementById("onlineRow").hidden = false;
-  document.getElementById("onlineOnly").addEventListener("change", e => { state.onlineOnly = e.target.checked; apply(); });
+  document.getElementById("liveTest").hidden = false;
+  const testedEl = document.getElementById("testedOnly");
+  testedEl.checked = state.testedOnly;
+  document.getElementById("testedN").textContent = CAMERAS.filter(tested).length.toLocaleString();
+  testedEl.addEventListener("change", () => { state.testedOnly = testedEl.checked; apply(); });
+  const delayEl = document.getElementById("maxDelay");
+  delayEl.value = String(state.maxDelay);
+  delayEl.addEventListener("change", () => { state.maxDelay = +delayEl.value; apply(); });
 }
 
 let qTimer;
@@ -536,7 +601,11 @@ function visible(c) {
   if (!state.countries.has(c.country)) return false;
   if (state.liveOnly && !isLive(c)) return false;
   if (!state.types.has(typeKey(c)) || !state.sources.has(c.source)) return false;
-  if (state.onlineOnly && !(c.q && c.q.status === "online")) return false;
+  if (state.testedOnly && !tested(c)) return false;
+  if (hasScan && state.maxDelay > 0) {
+    const d = delayOf(c);
+    if (d != null && d > state.maxDelay) return false;
+  }
   if (state.minHeight > 0) {
     const h = height(c);
     if (h == null ? !state.unmeasured : h < state.minHeight) return false;
@@ -553,16 +622,17 @@ function apply() {
   visibleList = shown.map(m => m.cam);
   cluster.clearLayers();
   cluster.addLayers(shown);
-  const online = hasScan ? CAMERAS.filter(c => c.q && c.q.status === "online").length : null;
+  const live = hasScan ? CAMERAS.filter(tested).length : null;
   document.getElementById("stats").textContent =
     `${shown.length.toLocaleString()} of ${CAMERAS.length.toLocaleString()} cameras shown` +
-    (online != null ? ` · ${online.toLocaleString()} online in last scan` : "");
+    (live != null ? ` · ${live.toLocaleString()} tested live` : "");
   return shown;
 }
 
 // ---------- sharpest list ----------
 if (hasScan) {
-  const best = CAMERAS.filter(c => height(c) && (!state.liveOnly || isLive(c)))
+  const withinDelay = c => !(state.maxDelay > 0 && delayOf(c) != null && delayOf(c) > state.maxDelay);
+  const best = CAMERAS.filter(c => height(c) && (!state.liveOnly || isLive(c)) && withinDelay(c))
     .sort((a, b) => (b.q.score || 0) - (a.q.score || 0)).slice(0, 15);
   if (best.length) {
     document.getElementById("bestWrap").hidden = false;

@@ -13,7 +13,11 @@ pages without one. A tiny local server on your own computer fixes that.
 Press Ctrl+C to stop it.
 
 By default only live-video cameras are shown (MJPEG, HLS and city video
-players); tick them back on in the sidebar or use --include-stills.
+players); tick them back on in the sidebar or use --include-stills. Once
+you've run the scanner, only cameras it found live are shown (new video kept
+arriving: nothing frozen or pre-recorded), up to 15 s behind real time; see
+--untested and --max-delay. HLS video plays one chunk plus 2 s behind the
+newest video instead of hls.js's default three chunks.
 
 Clicking a pin opens the camera in a viewer that takes half the screen.
 By default only cameras measured at 720p or better are shown (needs a scan),
@@ -38,7 +42,8 @@ QUALITY_PATH = Path("data/camera_quality.json")
 TEMPLATE_PATH = ROOT / "frontend" / "map_template.html"
 OUTPUT_PATH = Path("data/map.html")
 
-QUALITY_FIELDS = ("status", "kind", "width", "height", "fps", "score", "probed_url")
+QUALITY_FIELDS = ("status", "kind", "live", "delay_s", "segment_s", "width", "height", "fps",
+                  "score", "probed_url")
 CAMERA_FIELDS = ("id", "source", "category", "country", "region", "road", "direction",
                  "description", "lat", "lon", "stream_url", "url_type", "format", "update_rate",
                  "api_camera_id", "publisher", "page_url")
@@ -50,8 +55,8 @@ def _embed(value) -> str:
     return text.replace("</", "<\\/").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
-def build(output: Path = OUTPUT_PATH, min_height: int = 720,
-          live_only: bool = True) -> tuple[Path, int, int]:
+def build(output: Path = OUTPUT_PATH, min_height: int = 720, live_only: bool = True,
+          tested_only: bool = True, max_delay: int = 15) -> tuple[Path, int, int]:
     if not CAMERAS_PATH.exists():
         raise SystemExit("data/cameras.json not found. Run: python -m src.feeds.cameras")
     cameras = json.loads(CAMERAS_PATH.read_text(encoding="utf-8"))
@@ -76,6 +81,8 @@ def build(output: Path = OUTPUT_PATH, min_height: int = 720,
     html = html.replace("__GENERATED__", _embed(datetime.now().strftime("%Y-%m-%d %H:%M")))
     html = html.replace("__MIN_HEIGHT__", str(int(min_height)))
     html = html.replace("__LIVE_ONLY__", "true" if live_only else "false")
+    html = html.replace("__TESTED_ONLY__", "true" if tested_only else "false")
+    html = html.replace("__MAX_DELAY__", str(int(max_delay)))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html, encoding="utf-8")
@@ -113,9 +120,16 @@ def main(argv: list[str] | None = None) -> None:
                    help="starting picture-quality filter in pixels (default 720; 0 shows all)")
     p.add_argument("--include-stills", action="store_true",
                    help="start with still images and web pages shown too (default: live video only)")
+    p.add_argument("--untested", action="store_true",
+                   help="start with untested cameras shown too (default once you've scanned: "
+                        "only cameras the scan found live)")
+    p.add_argument("--max-delay", type=int, default=15, choices=[5, 10, 15, 30, 0],
+                   help="starting limit on how far behind real time a camera may run, in seconds "
+                        "(default 15; 5 = real time; 0 = any)")
     args = p.parse_args(argv)
 
-    path, n, scanned = build(args.output, args.min_height, live_only=not args.include_stills)
+    path, n, scanned = build(args.output, args.min_height, live_only=not args.include_stills,
+                             tested_only=not args.untested, max_delay=args.max_delay)
     print(f"Map built with {n:,} cameras ({scanned:,} with scan results): {path}")
     if args.no_open:
         return

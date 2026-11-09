@@ -1,7 +1,12 @@
-"""Camera quality scanner.
+"""Camera quality and live-video test.
 
 Reads data/cameras.json, connects to each camera briefly, and records:
   - whether it's online
+  - whether it's really live: new video keeps arriving (an MJPEG stream
+    sends more than one different picture; an HLS playlist adds new video
+    when read again a chunk later and isn't a finished recording)
+  - for HLS, the chunk length and roughly how far behind real time it plays
+    in the map (one chunk plus 2 seconds; MJPEG is real time)
   - resolution (width x height)
   - frame rate, for video streams
   - how long the first frame took to arrive
@@ -32,6 +37,7 @@ import re
 import struct
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -58,6 +64,10 @@ CONNECT_TIMEOUT = 6      # seconds to connect
 READ_TIMEOUT = 8         # seconds to wait for data
 FPS_WINDOW = 4.0         # seconds spent counting frames on a video stream
 MAX_STREAM_BYTES = 8_000_000
+# The map plays HLS one chunk plus this many seconds behind the newest video
+# (hls.js's default is three chunks: 30-60 s behind on 10-second chunks).
+PLAYER_MARGIN_S = 2
+HLS_RECHECK_MAX_S = 25   # longest wait before reading a playlist a second time
 
 SOI = b"\xff\xd8"  # JPEG start
 EOI = b"\xff\xd9"  # JPEG end
@@ -114,6 +124,9 @@ def _result(cam: dict, **fields) -> dict:
         "probed_url": cam["stream_url"],
         "status": "offline",
         "kind": None,
+        "live": None,       # True: new video kept arriving. False: frozen, a recording, or a still
+        "delay_s": None,    # HLS: about how far behind real time the map plays it
+        "segment_s": None,  # HLS: chunk length
         "width": None,
         "height": None,
         "fps": None,
@@ -146,6 +159,7 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
     """Read a multipart MJPEG stream for a few seconds and count frames."""
     buf = b""
     frames = 0
+    pictures = set()  # a frozen camera repeats the same picture
     first_frame_at = None
     size = None
     total = 0
@@ -168,6 +182,8 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
             frame = buf[s:e + 2]
             buf = buf[e + 2:]
             frames += 1
+            if len(pictures) < 2:
+                pictures.add(hash(frame))
             now = time.monotonic()
             if first_frame_at is None:
                 first_frame_at = now
@@ -182,22 +198,88 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
         return {"status": "no-frames"}
     elapsed = max(time.monotonic() - first_frame_at, 0.001)
     fps = (frames - 1) / elapsed if frames > 1 else 0.0
-    return {
+    result = {
         "status": "online",
         "kind": "mjpeg",
+        "live": True,
         "width": size[0] if size else None,
         "height": size[1] if size else None,
         "fps": round(fps, 2),
         "first_frame_s": round(first_frame_at - started, 2),
     }
+    if len(pictures) < 2:
+        result.update(status="frozen", live=False,
+                      error="sent only one picture" if frames == 1 else "kept sending the same picture")
+    return result
 
 
 _RESOLUTION_RE = re.compile(r"RESOLUTION=(\d+)x(\d+)", re.IGNORECASE)
 _FRAMERATE_RE = re.compile(r"FRAME-RATE=([\d.]+)", re.IGNORECASE)
+_BANDWIDTH_RE = re.compile(r"BANDWIDTH=(\d+)", re.IGNORECASE)
+_TARGET_RE = re.compile(r"#EXT-X-TARGETDURATION:\s*([\d.]+)")
+_SEQUENCE_RE = re.compile(r"#EXT-X-MEDIA-SEQUENCE:\s*(\d+)")
+_EXTINF_RE = re.compile(r"#EXTINF:\s*([\d.]+)")
+_PDT_RE = re.compile(r"#EXT-X-PROGRAM-DATE-TIME:\s*(\S+)")
 
 
-def _probe_hls(text: str, started: float) -> dict:
-    """Read an HLS playlist. Master playlists list each quality's resolution."""
+def _best_variant(master: str, base_url: str) -> str | None:
+    """The highest-bandwidth stream listed in a master playlist."""
+    lines = [l.strip() for l in master.splitlines()]
+    best, best_bw = None, -1
+    for i, line in enumerate(lines):
+        if not line.startswith("#EXT-X-STREAM-INF"):
+            continue
+        uri = next((l for l in lines[i + 1:] if l and not l.startswith("#")), None)
+        bw = int((_BANDWIDTH_RE.search(line) or [0, 0])[1])
+        if uri and bw > best_bw:
+            best, best_bw = urljoin(base_url, uri), bw
+    return best
+
+
+def _media_state(text: str) -> dict:
+    """What a media playlist says about its newest video."""
+    target, sequence = _TARGET_RE.search(text), _SEQUENCE_RE.search(text)
+    durations, dates = _EXTINF_RE.findall(text), _PDT_RE.findall(text)
+    segments = [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")]
+    return {
+        "segment_s": float(target.group(1)) if target else None,
+        "sequence": int(sequence.group(1)) if sequence else None,
+        "last": segments[-1] if segments else None,
+        "last_duration": float(durations[-1]) if durations else 0.0,
+        "last_date": dates[-1] if dates else None,
+        "ended": "#EXT-X-ENDLIST" in text,
+    }
+
+
+def _age_of_newest(state: dict) -> float | None:
+    """Seconds since the newest video ended, when the server says when it was
+    filmed (EXT-X-PROGRAM-DATE-TIME). Most servers don't."""
+    if not state["last_date"]:
+        return None
+    try:
+        filmed = datetime.fromisoformat(state["last_date"].replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if filmed.tzinfo is None:
+        return None
+    return time.time() - (filmed.timestamp() + state["last_duration"])
+
+
+def _get_text(url: str) -> tuple[str, str]:
+    resp = session.get(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+    resp.raise_for_status()
+    return resp.url, resp.content[:500_000].decode("utf-8", "ignore")
+
+
+def _probe_hls(text: str, url: str, started: float) -> dict:
+    """Read an HLS playlist and note how live it is.
+
+    A master playlist lists each quality's resolution; ACE follows it to the
+    best quality's media playlist, which gives the chunk length and shows
+    whether the stream has ended (a finished recording, not live video).
+    main() reads the media playlist again a chunk later (recheck_hls) to make
+    sure new video is still arriving.
+    """
     if not text.lstrip().startswith("#EXTM3U"):
         return {"status": "unsupported", "error": "not a valid HLS playlist"}
     sizes = [(int(w), int(h)) for w, h in _RESOLUTION_RE.findall(text)]
@@ -211,7 +293,57 @@ def _probe_hls(text: str, started: float) -> dict:
         result["error"] = "HLS playlist lists no resolution; size unknown"
     if rates:
         result["fps"] = round(max(rates), 2)
+
+    media_url, media = url, text
+    if "#EXT-X-STREAM-INF" in text:
+        variant = _best_variant(text, url)
+        if not variant:
+            return {**result, "status": "unsupported", "error": "master playlist lists no streams"}
+        try:
+            media_url, media = _get_text(variant)
+        except requests.RequestException as e:
+            return {**result, "status": "offline", "error": f"media playlist: {type(e).__name__}"}
+
+    state = _media_state(media)
+    if state["ended"]:
+        return {**result, "status": "recorded", "live": False,
+                "error": "a finished recording, not live video"}
+    segment = state["segment_s"] or 6.0
+    # One chunk plus the player's margin; more if the server's newest video
+    # is already older than one chunk.
+    age = _age_of_newest(state)
+    late = max(0.0, age - segment) if age is not None else 0.0
+    result.update(segment_s=state["segment_s"], delay_s=round(segment + PLAYER_MARGIN_S + late, 1))
+    result["_recheck"] = {"url": media_url, "sequence": state["sequence"], "last": state["last"],
+                          "at": time.monotonic(), "wait": min(segment + 2, HLS_RECHECK_MAX_S)}
     return result
+
+
+def recheck_hls(r: dict) -> dict:
+    """Read an HLS stream's media playlist again: a live stream has added new
+    video since the first read. Updates r in place."""
+    info = r.pop("_recheck", None)
+    if not info:
+        return r
+    wait = info["at"] + info["wait"] - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        _, text = _get_text(info["url"])
+    except Exception as e:  # one bad stream must never stop the scan
+        r["error"] = f"second check failed ({type(e).__name__}); not confirmed live"
+        return r
+    state = _media_state(text)
+    moved = (state["last"] != info["last"]
+             or (state["sequence"] or 0) > (info["sequence"] or 0))
+    if state["ended"]:
+        r.update(status="recorded", live=False, error="the stream ended: a finished recording")
+    elif moved:
+        r["live"] = True
+    else:
+        r.update(status="frozen", live=False, error=f"no new video in {info['wait']:.0f} s")
+    r["score"] = score(r)
+    return r
 
 
 _EMBED_RE = re.compile(
@@ -245,6 +377,7 @@ def probe_url(url: str, depth: int = 0) -> dict:
             return {
                 "status": "online" if size else "bad-image",
                 "kind": "image",
+                "live": False,  # a still picture, not video
                 "width": size[0] if size else None,
                 "height": size[1] if size else None,
                 "first_frame_s": round(time.monotonic() - started, 2),
@@ -252,7 +385,7 @@ def probe_url(url: str, depth: int = 0) -> dict:
 
         if "mpegurl" in ctype or url.lower().split("?")[0].endswith(".m3u8"):
             text = resp.raw.read(200_000, decode_content=True).decode("utf-8", "ignore")
-            return _probe_hls(text, started)
+            return _probe_hls(text, resp.url, started)
 
         if "html" in ctype and depth == 0:
             # A web page that wraps the camera: look for the real feed inside it.
@@ -272,7 +405,8 @@ def probe_url(url: str, depth: int = 0) -> dict:
         head = resp.raw.read(65536, decode_content=True)
         size = image_size(head)
         if size:
-            return {"status": "online", "kind": "image", "width": size[0], "height": size[1],
+            return {"status": "online", "kind": "image", "live": False,
+                    "width": size[0], "height": size[1],
                     "first_frame_s": round(time.monotonic() - started, 2)}
         return {"status": "unsupported", "error": f"content type '{ctype or 'unknown'}'"}
 
@@ -389,16 +523,31 @@ def report(results: list[dict], top: int) -> None:
     if sizes:
         print("  resolutions: " + ", ".join(f"{k} ({v})" for k, v in sorted(sizes.items(), key=lambda x: -x[1])[:8]))
 
-    ranked = sorted(online, key=lambda r: r["score"], reverse=True)[:top]
+    live = [r for r in results if r.get("live")]
+    mjpeg = sum(1 for r in live if r["kind"] == "mjpeg")
+    delays = sorted(r["delay_s"] for r in live if r["kind"] == "hls" and r.get("delay_s"))
+    if live:
+        line = f"  live video: {len(live)}"
+        parts = []
+        if mjpeg:
+            parts.append(f"{mjpeg} MJPEG in real time")
+        if delays:
+            parts.append(f"{len(delays)} HLS about {delays[len(delays) // 2]:.0f} s behind (median; "
+                         f"{sum(d <= 10 for d in delays)} within 10 s)")
+        print(line + (" (" + ", ".join(parts) + ")" if parts else ""))
+
+    # Rank live video first; fall back to anything online (e.g. still images).
+    ranked = sorted(live or online, key=lambda r: r["score"], reverse=True)[:top]
     if not ranked:
         return
     print(f"\nTop {len(ranked)} cameras:")
-    print(f"  {'score':>6}  {'resolution':>10}  {'fps':>5}  {'id':<34} place")
+    print(f"  {'score':>6}  {'resolution':>10}  {'fps':>5}  {'delay':>9}  {'id':<34} place")
     for r in ranked:
         res = f"{r['width']}x{r['height']}" if r["height"] else "?"
-        fps = f"{r['fps']:.1f}" if r["fps"] is not None else "still"
+        fps = f"{r['fps']:.1f}" if r["fps"] is not None else ("still" if r["kind"] == "image" else "?")
+        delay = "real time" if r["kind"] == "mjpeg" else (f"~{r['delay_s']:.0f} s" if r.get("delay_s") else "-")
         place = " ".join(x for x in (r.get("road"), r.get("description")) if x) or ""
-        print(f"  {r['score']:>6}  {res:>10}  {fps:>5}  {r['id'][:34]:<34} {place[:40]}")
+        print(f"  {r['score']:>6}  {res:>10}  {fps:>5}  {delay:>9}  {r['id'][:34]:<34} {place[:40]}")
     print(f"\nOpen any of these in a browser via its stream_url in {OUT_CSV}")
 
 
@@ -424,13 +573,25 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Probing {len(chosen)} cameras with {args.workers} workers...")
     results: list[dict] = []
     started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=max(1, min(args.workers, 16))) as pool:
+    workers = max(1, min(args.workers, 16))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(probe, c) for c in chosen]
         for n, fut in enumerate(as_completed(futures), start=1):
             results.append(fut.result())
             if n % 25 == 0 or n == len(chosen):
                 online = sum(r["status"] == "online" for r in results)
                 print(f"  {n}/{len(chosen)} done, {online} online, {time.monotonic() - started:.0f}s")
+
+    # Second look at HLS streams, a chunk after the first: live ones have
+    # added new video. Done as a separate pass so nobody waits idle above.
+    pending = [r for r in results if r.get("_recheck")]
+    if pending:
+        print(f"Checking that {len(pending)} HLS streams keep adding new video...")
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for n, r in enumerate(pool.map(recheck_hls, pending), start=1):
+                if n % 100 == 0 or n == len(pending):
+                    live = sum(1 for x in pending[:n] if x.get("live"))
+                    print(f"  {n}/{len(pending)} rechecked, {live} live")
 
     results.sort(key=lambda r: r["score"], reverse=True)
     total = save(results)

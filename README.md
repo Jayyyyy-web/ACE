@@ -90,6 +90,10 @@ Builds `data/map.html`, serves it on `http://localhost:8765` and opens it in you
 
 **Live video only** is on by default: the map shows cameras with moving video (MJPEG streams, HLS video and city video players). Untick it in the sidebar to also see still images and web pages, or start that way with `python -m src.map --include-stills`.
 
+**Tested live only** is on once you've run the scanner (below): the map then shows only cameras the scanner found really live, meaning new video kept arriving and nothing was frozen, pre-recorded or a still picture. Untested places disappear until you scan them. YouTube streams and city viewers can't be tested, so they show only with this off (or start with `python -m src.map --untested`).
+
+**How far behind real time:** MJPEG video (blue pins) is real time. HLS video (pink pins) is published in chunks, 2–17 seconds long on most of these cameras, so it always runs at least one chunk behind. hls.js normally starts three chunks back, which put many cameras 30–60 seconds behind; ACE's player sits one chunk plus 2 seconds behind instead. In tests that took California from about 30 s to 12 s behind, Virginia from 21 s to 8 s, New York from 15 s to 8 s and the New Jersey Turnpike from 7.5 s to 4 s, with no stutter. The scanner works out each camera's delay, and the map shows cameras up to 15 seconds behind by default. Pick **Real time** in the sidebar (or `--max-delay 5`) for MJPEG plus the fastest HLS only, or **Any delay** (`--max-delay 0`). The viewer shows a live readout such as "● live · 4 s behind".
+
 Every camera is a pin, clustered by area and coloured by type, with search (road, place, state or ID), and filters by country, type and source. Each country has a **zoom** button.
 
 Click a pin and the camera opens in a viewer that takes half the screen (the bottom half on a phone). Live video (MJPEG and HLS) plays directly; still images refresh automatically. Use **‹ Prev / Next ›** or the `[` and `]` keys to flip through the cameras currently shown, and **Esc** to close. The feed stops as soon as you close or switch cameras. **Open source ↗** opens the stream itself in a new tab at full size; **Official page ↗** (Taichung, Tourism Administration) opens the camera's page on the agency's own site.
@@ -103,11 +107,12 @@ python -m src.feeds.scan --region new-taipei           # New Taipei area (includ
 python -m src.feeds.scan --category traffic            # all road cameras (slow with US included)
 python -m src.feeds.scan --country TWN                 # Taiwan only
 python -m src.feeds.scan --source taichung             # Taichung's HD cameras (3–4 minutes)
+python -m src.feeds.scan --source owa-krasnoyarsk      # Krasnoyarsk's Orion Telecom cameras
 python -m src.feeds.scan --country USA --sample 300    # 300 random US cameras
 python -m src.feeds.scan --country SGP                 # Singapore
 ```
 
-Connects to each camera for a few seconds and records whether it's online, its resolution, frame rate and response time, then ranks them. HLS video is measured from its playlist. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel), merged with earlier scans so you can scan one country or area at a time. No footage is saved. Taiwan regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
+Connects to each camera for a few seconds and tests whether it's really live: an MJPEG stream must send more than one different picture, and an HLS playlist must have added new video when read again a chunk later, and must not be a finished recording. Cameras that fail show as `frozen` or `recorded`. It also records resolution, frame rate and response time, plus each HLS camera's chunk length and about how far behind real time the map will play it, then ranks the live ones. HLS video is measured from its playlists. MJPEG cameras take about 5 seconds each, eight at a time: Taiwan's roughly 4,000 testable cameras take about 45 minutes, and the whole US list several hours, so try `--sample` first. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel), merged with earlier scans so you can scan one country or area at a time. No footage is saved. Taiwan regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
 
 ### Optional: TDX
 
@@ -184,6 +189,7 @@ See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and term
 - [x] Phase 1e: Singapore (free API: 8 cameras)
 - [x] Phase 1f: US live video (Ora) and worldwide official live video (Argus, open-webcam-atlas)
 - [x] Phase 1g: Taiwan HD: Taichung live video, Highway Bureau, Tourism Administration live cameras
+- [x] Phase 1h: live test (frozen and pre-recorded streams caught, HLS delay measured) and near-real-time HLS playback
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data
