@@ -324,10 +324,7 @@ def select(cameras: list[dict], args) -> list[dict]:
     # The same goes for YouTube live streams, which ACE only ever shows through
     # YouTube's own embed player.
     view_only = ("viewer", "youtube")
-    viewers = [c for c in cameras if c.get("url_type") in view_only]
-    out = [c for c in cameras if c.get("url_type") not in view_only]
-    if viewers:
-        print(f"Skipping {len(viewers)} view-only cameras (open those in a browser).")
+    out = cameras
     if args.country:
         out = [c for c in out if (c.get("country") or "TWN") in args.country]
     if args.region:
@@ -336,6 +333,10 @@ def select(cameras: list[dict], args) -> list[dict]:
         out = [c for c in out if c["source"] in args.source]
     if args.category:
         out = [c for c in out if c.get("category") == args.category]
+    viewers = sum(1 for c in out if c.get("url_type") in view_only)
+    if viewers:
+        print(f"Skipping {viewers} view-only cameras (open those in a browser).")
+        out = [c for c in out if c.get("url_type") not in view_only]
     if args.sample and len(out) > args.sample:
         out = random.sample(out, args.sample)
     if args.limit:

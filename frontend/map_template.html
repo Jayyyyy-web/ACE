@@ -43,6 +43,7 @@
     display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .v-foot a { margin-left: auto; color: var(--accent); text-decoration: none; font-weight: 600; }
   .v-foot a:hover { text-decoration: underline; }
+  .v-foot a:not([hidden]) + a { margin-left: 14px; }
   .v-nav { display: flex; gap: 6px; }
   .v-nav button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
     border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
@@ -147,6 +148,7 @@
     <div class="v-foot">
       <span id="vTags" style="display:contents"></span>
       <span class="v-nav"><button id="vPrev" title="Previous camera ( [ )">‹ Prev</button><button id="vNext" title="Next camera ( ] )">Next ›</button></span>
+      <a id="vPage" href="#" target="_blank" rel="noopener noreferrer" hidden title="This camera's page on the agency's own site">Official page ↗</a>
       <a id="vOpen" href="#" target="_blank" rel="noopener noreferrer">Open source ↗</a>
     </div>
   </section>
@@ -173,7 +175,7 @@ const WATER_HEX = "#3ddc97";
 const OFFLINE_HEX = "#5c6470";
 
 // Natural size of each agency's viewer page, used to scale it to the viewer.
-const FRAME_SIZE = { "new-taipei": [640, 360], "debris-flow": [740, 560], default: [800, 450] };
+const FRAME_SIZE = { "new-taipei": [640, 360], "debris-flow": [740, 560], taichung: [370, 290], default: [800, 450] };
 
 const hasScan = CAMERAS.some(c => c.q);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
@@ -303,7 +305,8 @@ function showFeed(c) {
     fr.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     fr.allowFullscreen = true;
     stage.appendChild(fr);
-    setTimeout(() => { fitFrame(); fr.src = c.stream_url + "?autoplay=1&mute=1&playsinline=1"; }, 220);
+    const params = "autoplay=1&mute=1&playsinline=1";
+    setTimeout(() => { fitFrame(); fr.src = c.stream_url + (c.stream_url.includes("?") ? "&" : "?") + params; }, 220);
     return;
   }
   if ((c.url_type === "viewer" || c.url_type === "page") && !inner) {
@@ -373,8 +376,20 @@ function openViewer(c) {
   document.body.classList.add("viewing");
   document.getElementById("vTitle").textContent = title(c);
   document.getElementById("vSub").textContent = c.id;
-  const ytId = c.url_type === "youtube" ? (c.stream_url.match(/\/embed\/([\w-]+)/) || [])[1] : null;
-  document.getElementById("vOpen").href = ytId ? `https://www.youtube.com/watch?v=${ytId}` : c.stream_url;
+  // "Open source" opens the stream itself at full size (for YouTube, the
+  // video or the channel's live page); "Official page" is the camera's page
+  // on the publishing agency's site, when the source gives one.
+  let openUrl = c.stream_url;
+  if (c.url_type === "youtube") {
+    const channel = (c.stream_url.match(/[?&]channel=([\w-]+)/) || [])[1];
+    const video = (c.stream_url.match(/\/embed\/([\w-]{11})(?:[?#]|$)/) || [])[1];
+    openUrl = channel ? `https://www.youtube.com/channel/${channel}/live`
+      : video ? `https://www.youtube.com/watch?v=${video}` : c.stream_url;
+  }
+  document.getElementById("vOpen").href = openUrl;
+  const pageLink = document.getElementById("vPage");
+  pageLink.hidden = !c.page_url;
+  pageLink.href = c.page_url || "#";
 
   const countryName = COUNTRY_NAMES[c.country] || c.country;
   const regionName = c.region && c.region !== "other" && c.region !== countryName ? c.region : null;
@@ -494,7 +509,7 @@ document.getElementById("unmeasuredN").textContent = unknownCount.toLocaleString
 minResEl.value = String(state.minHeight);
 unmeasuredEl.checked = state.unmeasured;
 document.getElementById("qualityNote").textContent = hasScan
-  ? "Sizes come from your last scan. City viewers (New Taipei) aren't scanned, so their size is unknown."
+  ? "Sizes come from your last scan. City viewers (New Taipei) and YouTube streams aren't scanned, so their size is unknown."
   : "No scan results yet, so sizes are unknown. Run: python -m src.feeds.scan --category traffic, then rebuild the map.";
 if (!hasScan) { minResEl.disabled = true; unmeasuredEl.disabled = true; }
 minResEl.addEventListener("change", () => { state.minHeight = +minResEl.value; apply(); });

@@ -77,15 +77,39 @@ SOFTWARE.
 
 ## YouTube live streams
 
-- Kyoto's official tourism cameras and public live streams tagged on
-  OpenStreetMap play only through YouTube's own embed player, as YouTube's
-  Terms of Service allow. ACE never downloads, records or analyses YouTube
-  video, and drops videos YouTube reports as unavailable or not embeddable.
+- Taiwan's Tourism Administration cameras, Kyoto's official tourism cameras
+  and public live streams tagged on OpenStreetMap play only through YouTube's
+  own embed player, as YouTube's Terms of Service allow. ACE never downloads,
+  records or analyses YouTube video, and drops videos YouTube reports as
+  unavailable or not embeddable (checked with YouTube's public oEmbed
+  endpoint).
+
+## Taiwan Tourism Administration live cameras
+
+- Source: the official list at https://www.taiwan.net.tw/m1.aspx?sNo=0042331
+  (交通部觀光署, Tourism Administration, MOTC). The streams belong to the
+  national scenic area administrations and city and county governments that
+  run them, credited on each camera as its publisher.
+- ACE reads the list at run time (the site's robots.txt allows it) and keeps
+  only each camera's name, county, provider, location and YouTube video ID.
+  It copies none of the site's text or photos, stores nothing in this repo,
+  and links each camera back to its official page.
 
 ## Government open data
 
 - **Taiwan** camera lists: data.gov.tw, Open Government Data License, version 1
-  (https://data.gov.tw/license).
+  (https://data.gov.tw/license). This includes Taichung City's live traffic
+  cameras (臺中市交通即時道路影像, dataset 83750, Taichung City Government).
+  ACE reads each Taichung camera's stream address
+  from the camera page the dataset links to, and links back to that page.
+- **Taiwan provincial highways:** 資料來源：交通部公路局 (Source: Highway
+  Bureau, MOTC), from its open-data site https://thbapp.thb.gov.tw/opendata/
+  (CCTV list `cctvs.xml`, MOTC real-time traffic data standard v2.0). The
+  bureau's terms for this data: it is free to download and use; anyone
+  passing it on, as is or value-added, must state that the original source
+  is the Highway Bureau; data may not be downloaded more often than every
+  60 seconds; and it may not be used in any way that breaks Taiwan's laws.
+  ACE credits the bureau on every camera and caches the list for a day.
 - **Singapore** traffic images: Land Transport Authority via data.gov.sg,
   Singapore Open Data Licence (https://data.gov.sg/open-data-licence).
 - **United States (optional `saat` source):** department-of-transportation

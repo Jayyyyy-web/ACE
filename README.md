@@ -1,6 +1,6 @@
 # ACE
 
-A personal project that gathers public live traffic camera feeds (official open data from Taiwan and Singapore, US state DOT cameras, and official city and transport-agency streams in South Korea, Indonesia, Japan, Macau, Türkiye and Russia) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
+A personal project that gathers public live traffic camera feeds (official open data from Taiwan and Singapore, Taiwan's official tourism live cameras, US state DOT cameras, and official city and transport-agency streams in South Korea, Indonesia, Japan, Macau, Türkiye and Russia) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
 
 Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles.
 
@@ -29,7 +29,7 @@ No account or API key needed.
 python -m src.feeds.cameras                      # every default source -> data/cameras.json
 python -m src.feeds.cameras --source argus owa   # the worldwide live sources only
 python -m src.feeds.cameras --source ora         # US live video (Ora) only
-python -m src.feeds.cameras --source opendata    # Taiwan only
+python -m src.feeds.cameras --source opendata twtourism   # Taiwan only
 python -m src.feeds.cameras --source otcm        # US only
 python -m src.feeds.cameras --source sgp         # Singapore only
 python -m src.feeds.cameras --category traffic   # Taiwan road cameras only (US is all road cameras)
@@ -39,11 +39,13 @@ Besides the flat `data/cameras.json`, a copy per country is written to `data/cam
 
 ### Sources
 
-**Taiwan** — government open data from data.gov.tw (Open Government Data License v1):
+**Taiwan** — government open data from data.gov.tw (Open Government Data License v1), plus the Highway Bureau's own open-data site:
 
 | Source | Category | Dataset |
 |---|---|---|
 | Freeway Bureau (national freeways) | traffic | [37665](https://data.gov.tw/dataset/37665) |
+| **Taichung City — HD live video** | traffic | [83750](https://data.gov.tw/dataset/83750) |
+| Highway Bureau (provincial highways) | traffic | [交通資料庫](https://thbapp.thb.gov.tw/opendata/) (`cctvs.xml`) |
 | Keelung City | traffic | [59458](https://data.gov.tw/dataset/59458) |
 | Chiayi County | traffic | [122133](https://data.gov.tw/dataset/122133) |
 | Chiayi City | traffic | [173813](https://data.gov.tw/dataset/173813) |
@@ -56,7 +58,13 @@ Besides the flat `data/cameras.json`, a copy per country is written to `data/cam
 
 Download links are looked up from the data.gov.tw metadata API on every run, so the fetcher keeps working when a city moves its files. Sources that fail are skipped, not fatal.
 
-Not included: Taipei City's road cameras. That dataset only has locations, and using Taipei's live traffic images requires an application to the city.
+**Taichung** has the sharpest road cameras in Taiwan that need no account: 315 live MJPEG streams from the city's own video servers. In a November 2026 scan all 315 were online and 61 were 720p or better (13 at 1920×1080, the best at about 9 fps); most of the rest are 640×360 to 720×576. The dataset links each camera to a small page on the city's traffic site rather than to the video, so ACE reads the stream address from every page (cached for a week) and stores the stream itself, which the scanner, the map and later the AI can use directly. The page stays linked as the camera's **Official page**.
+
+**Highway Bureau** (交通部公路局): 2,356 provincial-highway cameras, published on the bureau's own [open-data site](https://thbapp.thb.gov.tw/opendata/). Its terms ask users to state that the data comes from the Highway Bureau (ACE sets it as every camera's publisher, shown in the map) and not to download it more often than every 60 seconds (ACE keeps its copy for a day). The streams are about 320×240, so once scanned the default 720p map filter hides them; pick a lower quality in the sidebar to see them. In browser tests, cameras whose stream address ends in a direction tag such as `(N)` (about 8% of them) wouldn't play inside the map; the rest did.
+
+**Taiwan — Tourism Administration live cameras** (`twtourism`). The 114 official live cameras listed on the [Tourism Administration's site](https://www.taiwan.net.tw/m1.aspx?sNo=0042331), run by the national scenic area offices and city and county governments: Taipei 101 from Xiangshan, Dadaocheng Wharf, Tamsui, Jiufen, Yehliu, Gaomei Wetlands, all seven Sun Moon Lake cameras, Alishan, Penghu, Green Island, Kinmen, Matsu and more, mostly in HD. They are YouTube live streams, so they are **view-only**: they play in YouTube's embed player, and the scanner and any analysis skip them. ACE takes only each camera's name, county, provider, location and video ID, links back to its official page, and drops videos YouTube reports as unavailable. The list is cached for a day and each camera's page for a week.
+
+Not included: Taipei City's road cameras (reusing them needs an application and a licence agreement with the city), and Kaohsiung's and Taoyuan's (their camera sites only serve Taiwan and don't allow automated access; the official machine-readable route is TDX, below). Datasets of police intersection cameras list locations only and aren't used.
 
 **United States** — [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap) (MIT licence), a crowdsourced list of state DOT cameras: about 6,900 cameras across California, Ohio, Colorado, Indiana, Alabama, Alaska, Delaware, Kentucky, Arizona and Georgia. Its data was last updated in 2024, so some links are dead; the scanner finds which work. Cameras marked for review, at bad coordinates, or in agency-specific formats are skipped.
 
@@ -84,7 +92,7 @@ Builds `data/map.html`, serves it on `http://localhost:8765` and opens it in you
 
 Every camera is a pin, clustered by area and coloured by type, with search (road, place, state or ID), and filters by country, type and source. Each country has a **zoom** button.
 
-Click a pin and the camera opens in a viewer that takes half the screen (the bottom half on a phone). Live video (MJPEG and HLS) plays directly; still images refresh automatically. Use **‹ Prev / Next ›** or the `[` and `]` keys to flip through the cameras currently shown, and **Esc** to close. The feed stops as soon as you close or switch cameras.
+Click a pin and the camera opens in a viewer that takes half the screen (the bottom half on a phone). Live video (MJPEG and HLS) plays directly; still images refresh automatically. Use **‹ Prev / Next ›** or the `[` and `]` keys to flip through the cameras currently shown, and **Esc** to close. The feed stops as soon as you close or switch cameras. **Open source ↗** opens the stream itself in a new tab at full size; **Official page ↗** (Taichung, Tourism Administration) opens the camera's page on the agency's own site.
 
 **Picture quality:** by default the map only shows cameras measured at 720p or better, so everything you open fills the viewer. This needs scan results. Cameras whose size is unknown (not scanned yet, or New Taipei's city viewers) are included unless you untick that option. Change the starting filter with `python -m src.map --min-height 1080` (or `480`, or `0` for everything).
 
@@ -94,6 +102,7 @@ Click a pin and the camera opens in a viewer that takes half the screen (the bot
 python -m src.feeds.scan --region new-taipei           # New Taipei area (includes Taipei City)
 python -m src.feeds.scan --category traffic            # all road cameras (slow with US included)
 python -m src.feeds.scan --country TWN                 # Taiwan only
+python -m src.feeds.scan --source taichung             # Taichung's HD cameras (3–4 minutes)
 python -m src.feeds.scan --country USA --sample 300    # 300 random US cameras
 python -m src.feeds.scan --country SGP                 # Singapore
 ```
@@ -160,7 +169,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 - US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
 - Worldwide official live streams: [Argus](https://github.com/GoSlowPoke168/Argus), Copyright (c) 2026 Jeremy Hou, MIT licence ([`licenses/Argus-MIT.txt`](licenses/Argus-MIT.txt)); the streams belong to their publishing agencies.
 - Krasnoyarsk cameras and YouTube live list: [open-webcam-atlas](https://github.com/jaydenbarnescs-tech/open-webcam-atlas), Copyright (c) 2026 Jayden Barnes, MIT licence ([`licenses/open-webcam-atlas-MIT.txt`](licenses/open-webcam-atlas-MIT.txt)); Krasnoyarsk cameras: cam.krk.ru, CC BY-SA.
-- Taiwan camera lists: data.gov.tw, Open Government Data License v1.
+- Taiwan camera lists: data.gov.tw, Open Government Data License v1 (including Taichung City Government's live traffic cameras). Provincial-highway cameras: 資料來源：交通部公路局 (source: Highway Bureau, MOTC). Tourism live cameras: listed by the Tourism Administration, MOTC (交通部觀光署), streamed by the scenic area offices and local governments on YouTube.
 - Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.
 - Basemap: Esri, HERE, Garmin, © OpenStreetMap contributors.
 
@@ -174,6 +183,7 @@ See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and term
 - [x] Phase 1d: OpenTrafficCamMap format + US cameras
 - [x] Phase 1e: Singapore (free API: 8 cameras)
 - [x] Phase 1f: US live video (Ora) and worldwide official live video (Argus, open-webcam-atlas)
+- [x] Phase 1g: Taiwan HD: Taichung live video, Highway Bureau, Tourism Administration live cameras
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data

@@ -1,7 +1,10 @@
 """Build data/cameras.json from public camera sources.
 
 Default sources need no account or key:
-  opendata  Taiwan government open data (data.gov.tw)
+  opendata  Taiwan government open data (data.gov.tw, plus the Highway
+            Bureau's own open-data site), including Taichung's HD cameras
+  twtourism Taiwan Tourism Administration's official live cameras
+            (YouTube live streams; view-only)
   ora       Ora's US DOT live-video cameras (PolyForm Noncommercial)
   otcm      OpenTrafficCamMap's crowdsourced US camera list (MIT licence)
   sgp       Singapore LTA traffic images (data.gov.sg)
@@ -23,7 +26,7 @@ Examples:
     python -m src.feeds.cameras                          # everything on by default
     python -m src.feeds.cameras --source argus owa       # the worldwide live sources only
     python -m src.feeds.cameras --source ora             # US live video (Ora) only
-    python -m src.feeds.cameras --source opendata        # Taiwan only
+    python -m src.feeds.cameras --source opendata twtourism  # Taiwan only
     python -m src.feeds.cameras --source otcm            # US only
     python -m src.feeds.cameras --source sgp             # Singapore only
     python -m src.feeds.cameras --category traffic       # Taiwan road cameras + US
@@ -39,8 +42,11 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from src.feeds import argus, opendata, ora, otcm, owa, saat, sgp
+from src.feeds import argus, opendata, ora, otcm, owa, saat, sgp, twtourism
 from src.feeds.formats import with_format
+
+DEFAULT_SOURCES = ["opendata", "twtourism", "ora", "otcm", "sgp", "argus", "owa"]
+ALL_SOURCES = DEFAULT_SOURCES + ["saat", "tdx"]
 
 OUTPUT_PATH = Path("data/cameras.json")
 COUNTRY_DIR = Path("data/cameras")
@@ -97,22 +103,20 @@ def export_by_country(cameras: list[dict], folder: Path = COUNTRY_DIR) -> list[P
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fetch public camera lists.")
-    parser.add_argument("--source", nargs="+",
-                        choices=["opendata", "ora", "otcm", "sgp", "argus", "owa", "saat", "tdx", "all"],
-                        default=["opendata", "ora", "otcm", "sgp", "argus", "owa"],
-                        help="sources to use (default: opendata ora otcm sgp argus owa; no keys needed)")
+    parser.add_argument("--source", nargs="+", choices=ALL_SOURCES + ["all"], default=DEFAULT_SOURCES,
+                        help=f"sources to use (default: {' '.join(DEFAULT_SOURCES)}; no keys needed)")
     parser.add_argument("--category", choices=["traffic", "water"], action="append",
                         help="limit Taiwan open-data sources to a category (can repeat)")
     parser.add_argument("--city", nargs="+", help="TDX only: city codes such as NewTaipei Taoyuan")
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     args = parser.parse_args(argv)
 
-    sources = ({"opendata", "ora", "otcm", "sgp", "argus", "owa", "saat", "tdx"}
-               if "all" in args.source
-               else set(args.source))
+    sources = set(ALL_SOURCES) if "all" in args.source else set(args.source)
     cameras: list[dict] = []
     if "opendata" in sources:
         cameras += opendata.fetch_all(set(args.category) if args.category else None)
+    if "twtourism" in sources:
+        cameras += twtourism.fetch_all()
     # Ora before OpenTrafficCamMap: where both list the same stream, keep
     # Ora's newer record (dropped below by stream URL).
     if "ora" in sources:

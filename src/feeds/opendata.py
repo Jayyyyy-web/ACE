@@ -9,6 +9,20 @@ Categories:
   traffic  road cameras (freeway + cities that publish stream URLs)
   water    flood, river and debris-flow cameras (useful for typhoon mode)
 
+Two traffic sources work a little differently:
+  Taichung City lists a small web page per camera rather than the video
+  itself. Each page shows one live MJPEG stream from the city's own video
+  servers, so ACE reads the stream address from every page once and keeps
+  the answers in data/cache/ for a week. Several Taichung cameras stream in
+  720p or 1080p, which makes them the sharpest road cameras in Taiwan that
+  can be analysed without an account.
+
+  The Highway Bureau (provincial highways) publishes its list on its own
+  open-data site rather than through data.gov.tw's API. Its terms: credit
+  the bureau as the source (ACE sets it as each camera's publisher) and
+  never download the data more often than every 60 seconds (ACE keeps its
+  copy for a day).
+
 Not included on purpose:
   New Taipei City's cameras are included as "view-only": their dataset has
   locations but no stream links, so each one links to the city's official
@@ -22,18 +36,24 @@ Not included on purpose:
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json
+import re
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import requests
 
+from src.feeds.cache import CACHE_DIR, cached_bytes
 from src.feeds.formats import tw_region, with_format
 from src.feeds.http import session as _session
 
 METADATA_URL = "https://data.gov.tw/api/v2/rest/dataset/{nid}"
+THB_CCTV_URL = "https://thbapp.thb.gov.tw/opendata/cctv/info/cctvs.xml"
 
 # Rough bounding box for Taiwan, Penghu, Kinmen and Matsu.
 LAT_RANGE = (21.5, 26.5)
@@ -54,11 +74,22 @@ class Source:
     viewer_id_field: str = ""
     url_type: str = ""       # force a link type when the URL is misleading
     region: str = ""         # city/county when the whole source is in one place
+    # Agencies that publish on their own site instead of data.gov.tw's API.
+    url: str = ""            # direct download link (then nid is just for reference)
+    cache_days: float = 0    # keep the downloaded list this long (0 = every run)
+    publisher: str = ""      # credit shown with each camera, when terms ask for it
+    # The source's links are web pages that each show one live stream. ACE
+    # reads the stream address from the page; it must be on this domain.
+    stream_in_page: str = ""
 
 
 SOURCES = [
     # Road traffic
     Source("freeway", 37665, "traffic", "Freeway Bureau (national freeways)", "XML"),
+    Source("thb", 0, "traffic", "Highway Bureau (provincial highways)", "XML",
+           url=THB_CCTV_URL, cache_days=1, publisher="交通部公路局 Highway Bureau, MOTC"),
+    Source("taichung", 83750, "traffic", "Taichung City", "JSON", region="臺中市",
+           stream_in_page="taichung.gov.tw"),
     Source("keelung", 59458, "traffic", "Keelung City", region="基隆市"),
     Source("chiayi-county", 122133, "traffic", "Chiayi County", region="嘉義縣"),
     Source("chiayi-city", 173813, "traffic", "Chiayi City", region="嘉義市"),
@@ -85,21 +116,25 @@ SOURCES = [
 FIELD_CANDIDATES = {
     "id": ["CCTVID", "cameraid", "ccdidentifier"],
     "url": ["VideoStreamURL", "VideoImageURL", "imageurl", "url", "影像連結網址", "來源網址"],
-    "lat": ["PositionLat", "latitude_4326", "緯度", "wgsy", "lat", "latitude"],
-    "lon": ["PositionLon", "longitude_4326", "經度", "wgsx", "lon", "lng", "longitude"],
+    "lat": ["PositionLat", "latitude_4326", "緯度", "wgsy", "lat", "latitude", "py"],
+    "lon": ["PositionLon", "longitude_4326", "經度", "wgsx", "lon", "lng", "longitude", "px"],
     "road": ["RoadName", "rivername", "basinname"],
     "direction": ["RoadDirection"],
     "region": ["縣市", "countiesandcitieswherethemonitoringpointsarelocated"],
     "county": ["行政區", "district", "administrativedistrictwherethemonitoringpointislocated"],
     "description": [
         "SurveillanceDescription", "Location", "cameraname", "stationname",
-        "攝影機名稱", "鏡頭位置", "架設或拍攝地點", "address",
+        "攝影機名稱", "鏡頭位置", "架設或拍攝地點", "address", "roadsection",
     ],
 }
 
 
 class OpenDataError(RuntimeError):
     pass
+
+
+def _empty():
+    raise OpenDataError("download contained no camera records")
 
 
 # --------------------------------------------------------------------------
@@ -111,6 +146,8 @@ def _resource_url(source: Source) -> tuple[str, str, str]:
 
     Returns (url, format, declared_encoding).
     """
+    if source.url:
+        return source.url, source.prefer.upper(), ""
     resp = _session.get(METADATA_URL.format(nid=source.nid), timeout=30)
     resp.raise_for_status()
     meta = resp.json()
@@ -273,7 +310,13 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
     district = record.get("district") or record.get("行政區")
     if district and description and district not in description:
         description = f"{district} {description}"
-    return with_format({
+    if source.viewer_url:
+        url_type = "viewer"
+    elif source.stream_in_page:
+        url_type = "page"  # until _resolve_page_streams finds the stream inside
+    else:
+        url_type = source.url_type or _url_type(url)
+    camera = {
         "id": f"{source.key}:{raw_id}",
         "source": source.key,
         "category": source.category,
@@ -286,9 +329,81 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
         "lat": lat,
         "lon": lon,
         "stream_url": url,
-        "url_type": "viewer" if source.viewer_url else (source.url_type or _url_type(url)),
+        "url_type": url_type,
         "refresh_rate": None,
-    })
+    }
+    if source.publisher:
+        camera["publisher"] = source.publisher
+    return with_format(camera)
+
+
+# --------------------------------------------------------------------------
+# Cameras listed as web pages: find the live stream each page shows
+# --------------------------------------------------------------------------
+
+PAGE_STREAMS_PATH = CACHE_DIR / "page-streams.json"
+PAGE_STREAMS_MAX_AGE = 7 * 86400
+# <img src="..."> in modern browsers, <param name="src" value="..."> for the
+# old VLC plugin.
+_PAGE_MEDIA = re.compile(r"""<(?:img|param)\b[^>]*?\b(?:src|value)\s*=\s*["'](https?://[^"']+)["']""",
+                         re.IGNORECASE)
+
+
+def stream_in_page(page: str, domain: str) -> str | None:
+    """The first image/video address in page that is served from domain."""
+    for url in _PAGE_MEDIA.findall(page):
+        url = html.unescape(url)
+        host = (urlparse(url).hostname or "").lower()
+        if host == domain or host.endswith("." + domain):
+            return url
+    return None
+
+
+def _resolve_page_streams(cameras: list[dict], domain: str) -> int:
+    """Replace each camera's page link with the live stream inside the page.
+
+    Answers are cached for a week. If a page can't be read, a previous answer
+    is reused; with none, the camera stays a "page" (the map shows the page
+    itself). Returns how many cameras now have a direct stream.
+    """
+    try:
+        cache = json.loads(PAGE_STREAMS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    now = time.time()
+    todo = [c["stream_url"] for c in cameras
+            if now - cache.get(c["stream_url"], {}).get("at", 0) > PAGE_STREAMS_MAX_AGE]
+
+    def read(page_url: str):
+        try:
+            resp = _session.get(page_url, timeout=20)
+            resp.raise_for_status()
+            return page_url, stream_in_page(resp.content.decode("utf-8", errors="replace"), domain)
+        except requests.RequestException:
+            return page_url, None
+
+    if todo:
+        print(f"  reading {len(todo)} camera pages to find their live streams...")
+        with ThreadPoolExecutor(max_workers=4) as pool:  # small pages; stay polite
+            for page_url, stream in pool.map(read, todo):
+                if stream:
+                    cache[page_url] = {"stream": stream, "at": now}
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            PAGE_STREAMS_PATH.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    resolved = 0
+    for cam in cameras:
+        hit = cache.get(cam["stream_url"])
+        if not hit:
+            continue
+        cam["page_url"] = cam["stream_url"]  # the agency's own page for this camera
+        cam["stream_url"] = hit["stream"]
+        cam["url_type"], cam["encoding"], cam["format"] = "stream", "JPEG", "MJPEG"
+        resolved += 1
+    return resolved
 
 
 # --------------------------------------------------------------------------
@@ -297,9 +412,17 @@ def _normalise(record: dict, source: Source, index: int) -> dict | None:
 
 def fetch_source(source: Source) -> list[dict]:
     url, fmt, encoding = _resource_url(source)
-    records = _parse(_download(url), fmt, encoding)
+    if source.cache_days:
+        raw = cached_bytes(url, f"opendata-{source.key}", source.cache_days,
+                           check=lambda body: _parse(body, fmt, encoding) or _empty())
+    else:
+        raw = _download(url)
+    records = _parse(raw, fmt, encoding)
     cameras = [_normalise(r, source, i) for i, r in enumerate(records, start=1)]
     cameras = [c for c in cameras if c]
+    if source.stream_in_page:
+        found = _resolve_page_streams(cameras, source.stream_in_page)
+        print(f"  found the live stream for {found} of {len(cameras)} cameras")
 
     # Drop exact duplicate feeds, and make IDs unique when a source reuses
     # them (the river dataset numbers cameras 1, 2, 3... per station).
