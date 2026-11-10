@@ -54,12 +54,14 @@ Only cameras that pass go to `data/proper_cameras.json`, and the map then shows 
 | Group | Sources | On by default |
 |---|---|---|
 | `taiwan` | Taichung, Keelung, Tainan, Chiayi City and County (live MJPEG from data.gov.tw) | yes |
-| `indonesia` | Bantul, Yogyakarta City, Tasikmalaya, Bandung, Tangerang, Asahan, Jasa Marga toll roads | yes |
+| `indonesia` | Bantul, Pekanbaru, Magelang, Yogyakarta City, Cianjur, Palembang, Cirebon, Wonosobo, Salatiga, Kebumen, Padang, Denpasar, Bandung, Tasikmalaya, Tangerang, Asahan, Jasa Marga toll roads | yes |
+| `norway` | Statens vegvesen road cameras (open licence, NLOD) | yes |
+| `thailand` | Department of Highways | yes |
 | `korea` | Sejong (new), Ansan, Seoul, Busan, Ulsan, Daegu, Pohang, Changwon, Gwangju, Chungju | yes |
 | `krasnoyarsk` | Krasnoyarsk city cameras (cam.krk.ru, run by Orion Telecom) | yes |
 | `poland` | Gdańsk, Gdynia and Sopot city and seaside cameras (TASK, Gdańsk University of Technology) (new) | yes |
 | `istanbul` | Istanbul Metropolitan Municipality | yes |
-| `us` | US state transport departments (about 13,000 cameras) | no: nearly all are below 720p or 15–30 s behind, and testing them takes hours |
+| `us` | US state transport departments (about 13,000 cameras) | no: hundreds are HD (Seattle, Caltrans, Maryland, Minnesota, Hawaii) but sent in 10–15-second chunks, about 18–25 s behind, and testing them all takes a while. Try `python -m src.find --group us --max-delay 30`. |
 | `other` | Taiwan freeways and provincial highways, Japan Coast Guard, Macau: all official, all below 720p | no |
 
 ### What the survey found (November 2026)
@@ -77,6 +79,14 @@ Before the finder was written, samples from every source were tested from ACE's 
 | Other Korean cities | Mostly 640×480 to 720×480 in 10–12-second chunks (about 20 s behind). Seoul, Busan, Ulsan, Ansan (labelled Full HD) and Chungju didn't answer the test environment; they may answer you. |
 | **Krasnoyarsk** (Orion Telecom) | Sharp (1080p, 20–30 frames a second), but its server sends 15–17-second chunks, so even the map's faster player runs it about 25–35 s behind: it misses the default bar, and `--max-delay 40` keeps it. Most of its cameras refused the test environment (HTTP 403); they may answer you. |
 | US state DOTs | Mostly 320×240 to 720×480. The HD ones use long chunks (Delaware 17 s, Mississippi 11 s): 20–30 s behind. |
+
+### Camera lists other people built (searched November 2026)
+
+GitHub was searched for projects like this one (about 950 repositories across camera, CCTV, webcam and traffic-camera searches in a dozen languages), and the useful ones were downloaded and checked. Most are viewers built on the same government sources ACE already uses. The best find is **[Live-Environment-Streams](https://github.com/william-ricchiuti/Live-Environment-Streams)** (CC BY 4.0): about 6,900 road-authority streams whose maintainers reviewed every source's terms and dropped any that forbid reuse or need tokens. ACE now uses it for Norway, Thailand, eleven more Indonesian cities and, in the `us` group, US agencies. In tests from outside Asia, Pekanbaru (720p in 5-second chunks, about 8–13 s behind) and Magelang (2-second chunks, about 5–10 s) were near live, adding 16 proper cameras; Norway, Minnesota, Maryland, Louisiana, Seattle and Hawaii were sharp but 18–25 s behind; Thailand and several Indonesian cities didn't answer the test machine.
+
+Not used from that search: lists that mix in private or "exposed" cameras, aggregators whose streams need tokens (EarthCam, SkylineWebcams, BalticLiveCam) or whose terms forbid reuse, Japanese and Spanish government lists (still pictures, not video), and a Spanish town's cameras whose stream addresses carry a login.
+
+**Where some lists come from.** Live-Environment-Streams leaves out anything collected through opencctv.org, because that site's terms forbid scraping it. Argus's lists for Korea, Indonesia (Bantul, Yogyakarta City and others), Gdańsk, Istanbul, Macau and the Japan Coast Guard seem to have been collected that way. The cameras themselves are public government streams, and ACE only downloads Argus's own published, MIT-licensed file, but the cleanest route is to get each list from the agency itself; that's the plan for Bantul and Sejong next.
 
 **Left out, and why.** Some sharp, fairly live webcams were found but aren't used: ones run by internet providers or companies (in Mezhdurechensk, the Czech Ore Mountains, Kyrgyzstan, Astrakhan, Harlingen), because they carry no open licence and are meant for the companies' own sites; and some streamed from Wowza cloud addresses (for example Geoje in Korea, Istanbul's larger set), because the stream's address doesn't show who runs it. Some streams would never play in the map anyway, because their servers block other sites (Mezhdurechensk, Tangerang, the Japan Coast Guard). Yogyakarta Province's 543 links are dead. Taipei City needs a licence agreement, Kaohsiung and Taoyuan don't allow automated access, and TDX needs an account.
 
@@ -231,6 +241,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 - US live-video stream list: [Ora](https://github.com/warner-wvez/Ora), Copyright (c) 2026 Warner Varnado, PolyForm Noncommercial 1.0.0. Full text in [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt).
 - US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
+- Road-authority live video in Norway, Thailand, Indonesia and the US: [Live-Environment-Streams](https://github.com/william-ricchiuti/Live-Environment-Streams) by William Ricchiuti, CC BY 4.0 ([`licenses/Live-Environment-Streams-CC-BY-4.0.txt`](licenses/Live-Environment-Streams-CC-BY-4.0.txt)); each camera keeps its operator's requested credit, e.g. Statens vegvesen (NLOD).
 - Worldwide official live streams: [Argus](https://github.com/GoSlowPoke168/Argus), Copyright (c) 2026 Jeremy Hou, MIT licence ([`licenses/Argus-MIT.txt`](licenses/Argus-MIT.txt)); the streams belong to their publishing agencies, including Bantul Regency and Yogyakarta City (Indonesia), Sejong City's Sejong-N portal and other Korean city traffic centres, and TASK at Gdańsk University of Technology (Poland).
 - Krasnoyarsk cameras and YouTube live list: [open-webcam-atlas](https://github.com/jaydenbarnescs-tech/open-webcam-atlas), Copyright (c) 2026 Jayden Barnes, MIT licence ([`licenses/open-webcam-atlas-MIT.txt`](licenses/open-webcam-atlas-MIT.txt)); Krasnoyarsk cameras: cam.krk.ru, CC BY-SA.
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1 (including Taichung City Government's live traffic cameras). Provincial-highway cameras: 資料來源：交通部公路局 (source: Highway Bureau, MOTC). Tourism live cameras: listed by the Tourism Administration, MOTC (交通部觀光署), streamed by the scenic area offices and local governments on YouTube.

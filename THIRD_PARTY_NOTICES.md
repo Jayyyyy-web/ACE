@@ -49,6 +49,23 @@ SOFTWARE.
   source or get permission from its author.
 - Full licence text: [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt)
 
+## Live-Environment-Streams — CC BY 4.0
+
+- Project: https://github.com/william-ricchiuti/Live-Environment-Streams
+- By William Ricchiuti; data licensed under Creative Commons Attribution 4.0
+  International. Attribution: "Camera list: Live-Environment-Streams by
+  William Ricchiuti (CC BY 4.0)". ACE converts it to its own record format
+  and keeps only live video (HLS, MJPEG) with a real location.
+- Used for: road-authority live video in Norway, Thailand, Indonesia and the
+  US (downloaded by `src/feeds/les.py` at run time and cached locally, not
+  copied into this repo). Its maintainers review each source's terms
+  (SOURCES-REVIEW.md in that repo) and list only cleared sources.
+- Each camera keeps the credit its operator asks for (shown as its publisher
+  in the map), for example "Statens vegvesen (NLOD)" for Norway's cameras
+  (Norwegian Licence for Open Government Data, https://data.norge.no/nlod/en),
+  Caltrans (public domain), Iowa DOT (CC BY 4.0) and the State of Maryland.
+- Full licence text: [`licenses/Live-Environment-Streams-CC-BY-4.0.txt`](licenses/Live-Environment-Streams-CC-BY-4.0.txt)
+
 ## Argus — MIT License
 
 - Project: https://github.com/GoSlowPoke168/Argus

@@ -92,9 +92,17 @@ GROUPS = [
     Group("taiwan", "Taiwan city cameras", ("taichung", "keelung", "tainan", "chiayi-city", "chiayi-county"), True,
           "MJPEG, real time. Taichung has the sharpest (about 60 at 720p+, 13 at 1080p)."),
     Group("indonesia", "Indonesian city and regency cameras",
-          ("argus-bantul", "argus-jogjakarta", "argus-tasikmalaya", "argus-bandung-pelindung",
+          ("les-atcs-pekanbaru", "les-cctv-magelang", "les-atcs-cianjur", "les-atcs-palembang", "les-cctv-cirebon",
+           "les-cctv-wonosobo", "les-cctv-salatiga", "les-cctv-kebumen", "les-cctv-padang", "les-atcs-denpasar",
+           "les-atcs-bandung", "les-cctv-jogjakota", "les-atcs-tasikmalaya",
+           "argus-bantul", "argus-jogjakarta", "argus-tasikmalaya", "argus-bandung-pelindung",
            "argus-tangerang", "argus-asahan", "argus-bpjt"), True,
-          "Bantul: 1080p, 25 fps, about 8 s behind. Yogyakarta City is HD but 20-35 s behind."),
+          "Bantul: 1080p, 25 fps, about 8 s behind. Pekanbaru (720p, 5 s chunks) and Magelang (2 s chunks) "
+          "are near live too (about 8-13 s). Yogyakarta City is HD but 20-35 s behind."),
+    Group("norway", "Norwegian road cameras (Statens vegvesen)", ("les-vegvesen_video",), True,
+          "Open licence (NLOD). Many 720p, but 12-second chunks: about 20 s behind, so --max-delay 25."),
+    Group("thailand", "Thai highway cameras (Department of Highways)", ("les-trafficvision",), True,
+          "Some 720p and 1080p. Their server refuses some countries."),
     Group("korea", "Korean city traffic centres",
           ("argus-sejong", "argus-ansan", "argus-topis-seoul", "argus-busan", "argus-ulsan", "argus-daegu",
            "argus-pohang", "argus-changwon", "argus-gwangju", "argus-chungju"), True,
@@ -107,10 +115,13 @@ GROUPS = [
     Group("istanbul", "Istanbul municipality", ("argus-istanbul-ibb",), True,
           "Their server refuses some countries."),
     Group("us", "US state transport departments",
-          ("ora-*", "us-*", "argus-virginia", "argus-arlingtonva", "argus-njta", "argus-pgctrip", "argus-msdot",
+          ("les-caltrans", "les-seattle_sdot", "les-mdsha", "les-mndot", "les-ladotd_511", "les-deldot",
+           "les-goakamai_hdot", "les-iowa_dot", "les-vdot",
+           "ora-*", "us-*", "argus-virginia", "argus-arlingtonva", "argus-njta", "argus-pgctrip", "argus-msdot",
            "argus-oktraffic", "argus-wv511", "argus-castlerock", "argus-arcgis_cams", "argus-ny511",
            "argus-cotrip", "argus-scdot", "argus-mdchart", "argus-caltrans", "argus-opentrafficcam"), False,
-          "About 13,000 cameras, nearly all below 720p or 15-30 s behind. Slow to test."),
+          "About 13,000 cameras. Hundreds are HD (Seattle, Caltrans, Maryland, Minnesota, Hawaii) but "
+          "sent in 10-15 second chunks: about 18-25 s behind, so --max-delay 30. Slow to test."),
     Group("other", "Low-resolution official cameras",
           ("freeway", "thb", "argus-twipcam", "argus-taiwan-freeway", "argus-kaiho", "argus-dsat",
            "argus-bondowoso"), False,
@@ -135,11 +146,16 @@ def _wanted(source: str, patterns: list[str]) -> bool:
 
 
 def gather(patterns: list[str]) -> list[dict]:
-    """Fetch the camera lists the chosen groups need (cached on disk)."""
-    from src.feeds import argus, opendata, ora, otcm, owa
+    """Fetch the camera lists the chosen groups need (cached on disk).
+
+    Where two lists hold the same stream, the first one fetched wins, so the
+    licence-reviewed Live-Environment-Streams list goes before Argus and Ora."""
+    from src.feeds import argus, les, opendata, ora, otcm, owa
     from src.feeds.cache import cached_json
 
     cams: list[dict] = []
+    if any(p.startswith("les-") for p in patterns):
+        cams += [c for c in les.fetch_all() if _wanted(c["source"], patterns)]
     for source in opendata.SOURCES:
         if _wanted(source.key, patterns):
             print(f"Fetching {source.label}...")
@@ -170,11 +186,23 @@ def gather(patterns: list[str]) -> list[dict]:
     unique, seen = {}, set()
     for c in cams:
         url = c.get("stream_url")
-        if c.get("url_type") in ("youtube", "viewer", "page") or not url or url in seen or c["id"] in unique:
+        if c.get("url_type") in ("youtube", "viewer", "page") or not url:
             continue
-        seen.add(url)
+        key = _same_stream(url)
+        if key in seen or c["id"] in unique:
+            continue
+        seen.add(key)
         unique[c["id"]] = c
     return list(unique.values())
+
+
+def _same_stream(url: str) -> str:
+    """A form of a stream address that two lists writing it differently
+    (host case, default port, http/https) still agree on."""
+    p = urlparse(url.strip())
+    host = (p.hostname or "").lower()
+    port = f":{p.port}" if p.port and p.port not in (80, 443) else ""
+    return f"{host}{port}{p.path}?{p.query}".rstrip("?")
 
 
 # --------------------------------------------------------------------------
@@ -352,6 +380,14 @@ def summary(rows: list[dict]) -> None:
         mjpeg = sum(1 for x in proper if x["kind"] == "mjpeg")
         fhd = sum(1 for x in proper if (x["height"] or 0) >= 1080)
         print(f"  {mjpeg} real-time MJPEG, {len(proper) - mjpeg} HLS; {fhd} at 1080p or better.")
+    # Sharp cameras that missed only on delay: worth knowing about.
+    slower = sorted(x["delay_s"] for x in rows if x["why"].startswith("too far behind") and x["delay_s"])
+    if slower:
+        suggest = next((d for d in (20, 25, 30, 40, 60) if d >= slower[int(len(slower) * 0.8)]), 60)
+        within = sum(1 for d in slower if d <= suggest)
+        print(f"  {len(slower)} more cameras were sharp enough but further behind (about "
+              f"{slower[0]:.0f}-{slower[-1]:.0f} s). --max-delay {suggest} would let {within} of them in.")
+    if proper:
         print("Next: python -m src.map")
 
 
