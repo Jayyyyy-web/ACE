@@ -44,6 +44,9 @@ ALLOWLIST: dict[str, tuple[str, tuple[str, ...]]] = {
     "opencctv_gwangju": ("Gwangju TIC", ("gjtic.go.kr",)),
     "opencctv_ansan": ("Ansan ITS", ("ansan.go.kr",)),
     "opencctv_chungju": ("Chungju ITS", ("chungju.go.kr",)),
+    # Sejong City's own smart-city portal, Sejong-N (세종엔; smart.sejong.go.kr),
+    # streams its city cameras from sejongn2.kr.
+    "opencctv_sejong": ("Sejong City (Sejong-N)", ("sejongn2.kr",)),
     # Indonesia: provincial / city / regency governments, national toll roads
     "opencctv_jogjakarta": ("Yogyakarta City", ("jogjakota.go.id",)),
     "opencctv_bantul": ("Bantul Regency", ("bantulkab.go.id",)),
@@ -57,6 +60,9 @@ ALLOWLIST: dict[str, tuple[str, tuple[str, ...]]] = {
     "opencctv_kaiho": ("Japan Coast Guard (MLIT)", ("kaiho.mlit.go.jp",)),
     "opencctv_dsat": ("Macau DSAT", ("dsatmacau.com",)),
     "opencctv_istanbul-ibb": ("Istanbul Metropolitan Municipality", ("ibb.gov.tr",)),
+    # Poland: public city and seaside cameras run by TASK, the academic
+    # computer centre of Gdańsk University of Technology.
+    "opencctv_task-gdansk": ("TASK, Gdańsk University of Technology", ("task.gda.pl",)),
     # Taiwan national freeways (duplicates of data.gov.tw are dropped later)
     "opencctv_twipcam": ("Taiwan Freeway Bureau", ("freeway.gov.tw",)),
     "opencctv_taiwan-freeway": ("Taiwan Freeway Bureau", ("freeway.gov.tw",)),
@@ -79,9 +85,11 @@ ALLOWLIST: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 LIVE_TYPES = {"m3u8": "hls", "mjpeg": "stream"}
+# City and seaside views rather than road cameras.
+WEBCAM_SOURCES = {"opencctv_task-gdansk"}
 
 ISO3 = {"US": "USA", "TW": "TWN", "KR": "KOR", "ID": "IDN", "JP": "JPN", "MO": "MAC",
-        "TR": "TUR", "TH": "THA", "SG": "SGP", "GB": "GBR", "RU": "RUS"}
+        "TR": "TUR", "TH": "THA", "SG": "SGP", "GB": "GBR", "RU": "RUS", "PL": "POL"}
 
 
 def _host(url: str) -> str:
@@ -124,7 +132,7 @@ def convert(data: dict) -> list[dict]:
         cameras.append(with_format({
             "id": f"{src}:{hashlib.sha1(url.encode()).hexdigest()[:10]}",
             "source": src,
-            "category": "traffic",
+            "category": "webcam" if p["source"] in WEBCAM_SOURCES else "traffic",
             "country": ISO3.get(cc, cc or "other"),
             "region": p.get("city") or publisher,
             "county": None,

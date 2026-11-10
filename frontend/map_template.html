@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ACE · Camera Map</title>
+<title>ACE · __SUBTITLE__</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
@@ -95,7 +95,7 @@
 <div id="app">
   <aside id="side">
     <header>
-      <h1>ACE <span>· camera map</span></h1>
+      <h1>ACE <span>· __SUBTITLE__</span></h1>
       <div class="stats" id="stats"></div>
     </header>
     <div class="scroll">
@@ -120,7 +120,7 @@
       <div class="note">Moving video: MJPEG streams, HLS video and city video players. Untick to also see still images and web pages.</div>
       <div id="liveTest" hidden>
         <label class="row" style="margin-top:8px"><input type="checkbox" id="testedOnly"> <strong>Tested live only</strong> <span class="n" id="testedN"></span></label>
-        <div class="note">Only cameras your last scan found live: new video kept arriving, nothing frozen or pre-recorded. YouTube streams and city viewers can't be tested, so they show only when this is off.</div>
+        <div class="note">Only cameras the finder or your last scan found live: new video kept arriving, nothing frozen or pre-recorded. YouTube streams and city viewers can't be tested, so they show only when this is off.</div>
         <label for="maxDelay" class="note" style="display:block;margin:10px 0 4px">How far behind real time</label>
         <select id="maxDelay">
           <option value="5">Real time (up to 5 s behind)</option>
@@ -129,7 +129,7 @@
           <option value="30">Up to 30 s behind</option>
           <option value="0">Any delay</option>
         </select>
-        <div class="note">MJPEG video (blue) is real time. HLS video (pink) arrives in chunks, so it runs one chunk plus a couple of seconds behind; the scanner measures each camera.</div>
+        <div class="note">MJPEG video (blue) is real time. HLS video (pink) arrives in chunks, so it runs about one and a half chunks plus a couple of seconds behind; the finder and scanner measure each camera.</div>
       </div>
       <div id="types" style="margin-top:8px"></div>
 
@@ -141,7 +141,7 @@
         <ul class="best" id="best"></ul>
       </div>
     </div>
-    <footer>Public open-data feeds. View only — nothing is recorded.<br>Generated <span id="gen"></span></footer>
+    <footer>__FOOTNOTE__ View only — nothing is recorded.<br>Generated <span id="gen"></span></footer>
   </aside>
 
   <div id="map"></div>
@@ -296,13 +296,18 @@ function playHls(c) {
     hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { stopFeed(); stage.innerHTML = FAIL_MSG; } });
     hls.loadSource(c.stream_url);
     hls.attachMedia(video);
-    // Live readout: how far behind the newest video we're playing. When the
-    // server stamps its video with the time it was filmed, use that instead.
+    // Live readout: how far behind real time we're playing. When the server
+    // dates its video, use that date, plus the few seconds the camera takes
+    // to get its video to the server (which is when the date is stamped).
+    // Otherwise take how far we are behind the newest video, plus that
+    // video's own age: about half a chunk plus a second. Both were checked
+    // against cameras' on-screen clocks.
     const player = hls;
+    const edgeAge = (c.q && c.q.segment_s) ? c.q.segment_s / 2 + 1 : 0;
     delayTimer = setInterval(() => {
       if (player !== hls || video.readyState < 2) return;
       const filmed = player.playingDate;
-      const behind = filmed ? (Date.now() - filmed.getTime()) / 1000 : player.latency;
+      const behind = filmed ? (Date.now() - filmed.getTime()) / 1000 + 3 : player.latency + edgeAge;
       if (behind > 0 && behind < 600) showDelay(`● live · ${Math.round(behind)} s behind`);
     }, 1000);
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -500,7 +505,7 @@ window.addEventListener("resize", fitFrame);
 const COUNTRY_NAMES = {
   TWN: "Taiwan", USA: "United States", SGP: "Singapore", HKG: "Hong Kong", FIN: "Finland",
   KOR: "South Korea", IDN: "Indonesia", JPN: "Japan", MAC: "Macau", TUR: "Türkiye",
-  THA: "Thailand", RUS: "Russia", GBR: "United Kingdom", other: "Other (worldwide)",
+  THA: "Thailand", RUS: "Russia", GBR: "United Kingdom", POL: "Poland", other: "Other (worldwide)",
 };
 const state = {
   q: "", types: new Set(Object.keys(TYPES).concat("water")), sources: new Set(), countries: new Set(),
@@ -567,7 +572,7 @@ document.getElementById("unmeasuredN").textContent = unknownCount.toLocaleString
 minResEl.value = String(state.minHeight);
 unmeasuredEl.checked = state.unmeasured;
 document.getElementById("qualityNote").textContent = hasScan
-  ? "Sizes come from your last scan. City viewers (New Taipei) and YouTube streams aren't scanned, so their size is unknown."
+  ? "Sizes come from the finder or your last scan, read from the video itself. City viewers (New Taipei) and YouTube streams aren't tested, so their size is unknown."
   : "No scan results yet, so sizes are unknown. Run: python -m src.feeds.scan --category traffic, then rebuild the map.";
 if (!hasScan) { minResEl.disabled = true; unmeasuredEl.disabled = true; }
 minResEl.addEventListener("change", () => { state.minHeight = +minResEl.value; apply(); });

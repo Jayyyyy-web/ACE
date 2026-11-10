@@ -71,9 +71,12 @@ SOFTWARE.
 
 ## Krasnoyarsk city cameras — CC BY-SA
 
-- Source: cam.krk.ru (Krasnoyarsk, Russia), listed by open-webcam-atlas as
-  CC BY-SA. Attribution: "Cameras: cam.krk.ru". ACE only links to the
-  streams and stores no footage.
+- Source: cam.krk.ru (Krasnoyarsk, Russia; run by Orion Telecom), listed by
+  open-webcam-atlas as CC BY-SA. Attribution: "Cameras: cam.krk.ru". ACE
+  only links to the streams and stores no footage. The site's robots.txt
+  asks automated tools not to use its `/api/`, so ACE never calls it: the
+  stream list comes from open-webcam-atlas, and the streams are played
+  only where the stream server itself allows it.
 
 ## YouTube live streams
 
@@ -120,12 +123,14 @@ SOFTWARE.
   Shodan). The underlying feeds belong to the transport agencies.
 - Live streams imported through Argus belong to their publishers: Seoul
   TOPIS, Busan, Ulsan, Daegu, Pohang, Changwon, Gwangju, Ansan and Chungju
-  ITS (South Korea); Yogyakarta City, Bantul, Tangerang, Bandung,
-  Tasikmalaya, Bondowoso and Asahan local governments and Jasa Marga
-  (Indonesia); the Japan Coast Guard (MLIT); Macau DSAT; Istanbul
-  Metropolitan Municipality; Taiwan's Freeway Bureau; and US agencies
-  including Virginia DOT, Arlington County, the New Jersey Turnpike
-  Authority and Prince George's County.
+  ITS, and Sejong City's Sejong-N smart-city portal (South Korea);
+  Yogyakarta City, Bantul, Tangerang, Bandung, Tasikmalaya, Bondowoso and
+  Asahan local governments and Jasa Marga (Indonesia); the Japan Coast
+  Guard (MLIT); Macau DSAT; Istanbul Metropolitan Municipality; TASK, the
+  academic computer centre of Gdańsk University of Technology (Poland);
+  Taiwan's Freeway Bureau; and US agencies including Virginia DOT,
+  Arlington County, the New Jersey Turnpike Authority and Prince George's
+  County.
 - Camera images and video stay the property of the agencies that publish
   them. ACE links to them and does not store or redistribute footage.
 

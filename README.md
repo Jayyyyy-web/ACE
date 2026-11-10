@@ -1,12 +1,13 @@
 # ACE
 
-A personal project that gathers public live traffic camera feeds (official open data from Taiwan and Singapore, Taiwan's official tourism live cameras, US state DOT cameras, and official city and transport-agency streams in South Korea, Indonesia, Japan, Macau, Türkiye and Russia) and uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
+A personal project that finds **proper live cameras** (official public cameras whose video is live, sharp, smooth and close to real time), shows them on a map, and next uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
 
 Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles.
 
 ## Structure
 
-- `src/feeds/` – camera list fetching, quality scanning, shared formats
+- `src/find.py` – finds and tests the proper cameras
+- `src/feeds/` – camera list fetching, quality testing, shared formats
 - `src/map.py` – builds and serves the camera map
 - `src/vision/` – object detection on camera frames
 - `src/api/` – backend API
@@ -21,9 +22,67 @@ pip install requests python-dotenv certifi   # enough for fetching, scanning and
 pip install -r requirements.txt              # everything (large: includes PyTorch)
 ```
 
-## Usage
+## Start here: proper cameras
 
 No account or API key needed.
+
+```bash
+python -m src.find     # find and test the proper cameras (about 10-20 minutes the first time)
+python -m src.map      # see them on the map
+```
+
+**What "proper" means.** Every camera is tested from your own computer before it's kept:
+
+| Test | Default | Change it |
+|---|---|---|
+| **Live**: new pictures keep arriving; nothing frozen, still or pre-recorded | always | |
+| **Sharp**: picture size, read from the video itself | 1280×720 or better | `--min-height 1080` (Full HD only) or `480` |
+| **Smooth**: frames per second | at least 2 | `--min-fps 0` allows slideshows |
+| **Close to real time** | at most 15 s behind | `--max-delay 10`, `--max-delay 25` |
+| **Plays in the map**: the server lets other sites play its video (CORS), in H.264 | always | |
+
+Only cameras that pass go to `data/proper_cameras.json`, and the map then shows only those (`python -m src.map --all` shows the old, much bigger list). `data/find_report.csv` (opens in Excel) lists every camera tested and why any failed. Cameras found too small are skipped for a week so later runs are quicker (`--retest` checks them again). No video is saved.
+
+**How live is live?** MJPEG video (blue pins) sends each picture the moment it's taken, so it's real time. HLS video (pink pins) arrives in chunks, and the map plays it about one and a half chunks plus a few seconds behind, so servers that send short chunks are the most live. The finder works out each camera's delay from its chunk length, how old its newest video is, and how fast a chunk downloads. Checked against cameras' on-screen clocks, that estimate was right to within a few seconds.
+
+**Results depend on your connection.** Some servers only answer some countries, and a slow link lowers MJPEG frame rates and makes HLS fall behind. That's why the finder runs on your computer rather than shipping a fixed list. A server that refuses or ignores its first few cameras is skipped for the rest of the run, so nothing hangs on it; the finder prints which ones.
+
+### Where the finder looks
+
+`python -m src.find --list` shows the groups; pick some with `--group`, or single sources with `--source`.
+
+| Group | Sources | On by default |
+|---|---|---|
+| `taiwan` | Taichung, Keelung, Tainan, Chiayi City and County (live MJPEG from data.gov.tw) | yes |
+| `indonesia` | Bantul, Yogyakarta City, Tasikmalaya, Bandung, Tangerang, Asahan, Jasa Marga toll roads | yes |
+| `korea` | Sejong (new), Ansan, Seoul, Busan, Ulsan, Daegu, Pohang, Changwon, Gwangju, Chungju | yes |
+| `krasnoyarsk` | Krasnoyarsk city cameras (cam.krk.ru, run by Orion Telecom) | yes |
+| `poland` | Gdańsk, Gdynia and Sopot city and seaside cameras (TASK, Gdańsk University of Technology) (new) | yes |
+| `istanbul` | Istanbul Metropolitan Municipality | yes |
+| `us` | US state transport departments (about 13,000 cameras) | no: nearly all are below 720p or 15–30 s behind, and testing them takes hours |
+| `other` | Taiwan freeways and provincial highways, Japan Coast Guard, Macau: all official, all below 720p | no |
+
+### What the survey found (November 2026)
+
+Before the finder was written, samples from every source were tested from ACE's test environment, outside Asia. Your numbers will differ, mostly for the better in Taiwan.
+
+| Source | What was measured |
+|---|---|
+| **Taichung** (Taiwan) | 310 of 315 live, real time. 61 at 720p or better (13 at 1080p). Frame rates from overseas were 1–9 a second on the HD cameras, so only 11–15 passed the 2-a-second test from there; nearer Taichung they should be higher. |
+| **Keelung** (Taiwan) | 52 of 60 live, 5 at 720p, 2–5 frames a second. |
+| **Bantul** (Indonesia) | The best find: 29 of 39 cameras live in HD (16 at 1080p), 25 frames a second, 2-second chunks. Their on-screen clocks showed the map playing them **7–9 seconds** behind real time. |
+| **Sejong** (Korea) | 25–28 of 45 passed in each run, nearly all 1080p at 25 frames a second, in 3-second chunks: about 8 s behind (estimated). The city's own Sejong-N portal (smart.sejong.go.kr) streams them. |
+| **Gdańsk, Gdynia, Sopot** (Poland) | 5 of 6 passed: 1080p (one 2560×1440), 25 frames a second, 6-second chunks: about 12 s behind (estimated). |
+| **Yogyakarta City** (Indonesia) | Sharp (720p and 1080p, 25 frames a second) but 11-second chunks: 23–36 s behind by their clocks, so it misses the default bar. Try `--max-delay 40`. |
+| Other Korean cities | Mostly 640×480 to 720×480 in 10–12-second chunks (about 20 s behind). Seoul, Busan, Ulsan, Ansan (labelled Full HD) and Chungju didn't answer the test environment; they may answer you. |
+| **Krasnoyarsk** (Orion Telecom) | Sharp (1080p, 20–30 frames a second), but its server sends 15–17-second chunks, so even the map's faster player runs it about 25–35 s behind: it misses the default bar, and `--max-delay 40` keeps it. Most of its cameras refused the test environment (HTTP 403); they may answer you. |
+| US state DOTs | Mostly 320×240 to 720×480. The HD ones use long chunks (Delaware 17 s, Mississippi 11 s): 20–30 s behind. |
+
+**Left out, and why.** Some sharp, fairly live webcams were found but aren't used: ones run by internet providers or companies (in Mezhdurechensk, the Czech Ore Mountains, Kyrgyzstan, Astrakhan, Harlingen), because they carry no open licence and are meant for the companies' own sites; and some streamed from Wowza cloud addresses (for example Geoje in Korea, Istanbul's larger set), because the stream's address doesn't show who runs it. Some streams would never play in the map anyway, because their servers block other sites (Mezhdurechensk, Tangerang, the Japan Coast Guard). Yogyakarta Province's 543 links are dead. Taipei City needs a licence agreement, Kaohsiung and Taoyuan don't allow automated access, and TDX needs an account.
+
+## The full camera list
+
+Before the restart around proper cameras, ACE gathered every public camera it could find, about 29,000 of them, most of them still pictures, small or delayed. All of that still works and is described below; the map shows it with `python -m src.map --all`.
 
 ```bash
 python -m src.feeds.cameras                      # every default source -> data/cameras.json
@@ -112,7 +171,7 @@ python -m src.feeds.scan --country USA --sample 300    # 300 random US cameras
 python -m src.feeds.scan --country SGP                 # Singapore
 ```
 
-Connects to each camera for a few seconds and tests whether it's really live: an MJPEG stream must send more than one different picture, and an HLS playlist must have added new video when read again a chunk later, and must not be a finished recording. Cameras that fail show as `frozen` or `recorded`. It also records resolution, frame rate and response time, plus each HLS camera's chunk length and about how far behind real time the map will play it, then ranks the live ones. HLS video is measured from its playlists. MJPEG cameras take about 5 seconds each, eight at a time: Taiwan's roughly 4,000 testable cameras take about 45 minutes, and the whole US list several hours, so try `--sample` first. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel), merged with earlier scans so you can scan one country or area at a time. No footage is saved. Taiwan regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
+Connects to each camera for a few seconds and tests whether it's really live: an MJPEG stream must send more than one different picture, and an HLS playlist must have added new video when read again a chunk later, and must not be a finished recording. Cameras that fail show as `frozen` or `recorded`. It also records resolution, frame rate and response time, plus each HLS camera's chunk length and about how far behind real time the map will play it, then ranks the live ones. For HLS video it downloads one chunk and reads the real picture size, codec and frame rate from the video itself (playlists often don't say, or say the wrong thing), and checks the server lets other sites play it (CORS). MJPEG cameras take about 5 seconds each, eight at a time: Taiwan's roughly 4,000 testable cameras take about 45 minutes, and the whole US list several hours, so try `--sample` first. Results go to `data/camera_quality.json` and `data/camera_quality.csv` (opens in Excel), merged with earlier scans so you can scan one country or area at a time. No footage is saved. Taiwan regions: `new-taipei`, `keelung`, `taoyuan`, `taichung`, `tainan`, `kaohsiung`.
 
 ### Optional: TDX
 
@@ -172,7 +231,7 @@ Many Taiwan government sites use certificates that newer Python rejects as "Miss
 
 - US live-video stream list: [Ora](https://github.com/warner-wvez/Ora), Copyright (c) 2026 Warner Varnado, PolyForm Noncommercial 1.0.0. Full text in [`licenses/Ora-PolyForm-Noncommercial.txt`](licenses/Ora-PolyForm-Noncommercial.txt).
 - US camera list and record conventions: [OpenTrafficCamMap](https://github.com/AidanWelch/OpenTrafficCamMap), Copyright (c) 2020 AidanWelch, MIT licence. Full text in [`licenses/OpenTrafficCamMap-MIT.txt`](licenses/OpenTrafficCamMap-MIT.txt).
-- Worldwide official live streams: [Argus](https://github.com/GoSlowPoke168/Argus), Copyright (c) 2026 Jeremy Hou, MIT licence ([`licenses/Argus-MIT.txt`](licenses/Argus-MIT.txt)); the streams belong to their publishing agencies.
+- Worldwide official live streams: [Argus](https://github.com/GoSlowPoke168/Argus), Copyright (c) 2026 Jeremy Hou, MIT licence ([`licenses/Argus-MIT.txt`](licenses/Argus-MIT.txt)); the streams belong to their publishing agencies, including Bantul Regency and Yogyakarta City (Indonesia), Sejong City's Sejong-N portal and other Korean city traffic centres, and TASK at Gdańsk University of Technology (Poland).
 - Krasnoyarsk cameras and YouTube live list: [open-webcam-atlas](https://github.com/jaydenbarnescs-tech/open-webcam-atlas), Copyright (c) 2026 Jayden Barnes, MIT licence ([`licenses/open-webcam-atlas-MIT.txt`](licenses/open-webcam-atlas-MIT.txt)); Krasnoyarsk cameras: cam.krk.ru, CC BY-SA.
 - Taiwan camera lists: data.gov.tw, Open Government Data License v1 (including Taichung City Government's live traffic cameras). Provincial-highway cameras: 資料來源：交通部公路局 (source: Highway Bureau, MOTC). Tourism live cameras: listed by the Tourism Administration, MOTC (交通部觀光署), streamed by the scenic area offices and local governments on YouTube.
 - Singapore traffic images: Land Transport Authority via data.gov.sg, Singapore Open Data Licence.
@@ -190,6 +249,7 @@ See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and term
 - [x] Phase 1f: US live video (Ora) and worldwide official live video (Argus, open-webcam-atlas)
 - [x] Phase 1g: Taiwan HD: Taichung live video, Highway Bureau, Tourism Administration live cameras
 - [x] Phase 1h: live test (frozen and pre-recorded streams caught, HLS delay measured) and near-real-time HLS playback
+- [x] Phase 1i: restart from proper cameras: a finder that tests every camera (live, 720p+, smooth, close to real time, playable) and a map of only those; new sources Sejong (Korea) and Gdańsk (Poland)
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data

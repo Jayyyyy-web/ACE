@@ -6,10 +6,15 @@ Reads data/cameras.json, connects to each camera briefly, and records:
     sends more than one different picture; an HLS playlist adds new video
     when read again a chunk later and isn't a finished recording)
   - for HLS, the chunk length and roughly how far behind real time it plays
-    in the map (one chunk plus 2 seconds; MJPEG is real time)
-  - resolution (width x height)
+    in the map (see hls_delay; MJPEG is real time)
+  - resolution (width x height) and, for HLS, the codec: read from one
+    downloaded chunk, since playlists often don't say
   - frame rate, for video streams
+  - for HLS, whether the server lets other sites play it (CORS); the map
+    can't play it otherwise
   - how long the first frame took to arrive
+
+src.find uses these tests to keep only proper cameras.
 
 Results go to data/camera_quality.json and data/camera_quality.csv, and the
 best cameras are printed as a ranking. New results are merged with earlier
@@ -44,6 +49,7 @@ from urllib.parse import urljoin
 import requests
 
 from src.feeds.http import session
+from src.feeds.videoinfo import chunk_info
 
 CAMERAS_PATH = Path("data/cameras.json")
 OUT_JSON = Path("data/camera_quality.json")
@@ -67,7 +73,14 @@ MAX_STREAM_BYTES = 8_000_000
 # The map plays HLS one chunk plus this many seconds behind the newest video
 # (hls.js's default is three chunks: 30-60 s behind on 10-second chunks).
 PLAYER_MARGIN_S = 2
+# Servers date their chunks when the video reaches them, a few seconds after
+# it was filmed (measured on Bantul's cameras against their on-screen clocks).
+CAMERA_TO_SERVER_S = 3
 HLS_RECHECK_MAX_S = 25   # longest wait before reading a playlist a second time
+MAX_CHUNK_BYTES = 10_000_000  # one HLS chunk is downloaded to read its real picture size
+# The map runs at http://localhost:8765. A browser only plays another site's
+# HLS video if that site's answer allows it (CORS), so ask the way the map does.
+MAP_ORIGIN = "http://localhost:8765"
 
 SOI = b"\xff\xd8"  # JPEG start
 EOI = b"\xff\xd9"  # JPEG end
@@ -125,8 +138,11 @@ def _result(cam: dict, **fields) -> dict:
         "status": "offline",
         "kind": None,
         "live": None,       # True: new video kept arriving. False: frozen, a recording, or a still
-        "delay_s": None,    # HLS: about how far behind real time the map plays it
+        "delay_s": None,    # about how far behind real time the map plays it (MJPEG: 1)
         "segment_s": None,  # HLS: chunk length
+        "codec": None,      # HLS: h264 or hevc, read from a real chunk
+        "cors": None,       # HLS: False if the server won't let other sites (the map) play it
+        "chunk_download_s": None,  # HLS: how long one chunk took to download
         "width": None,
         "height": None,
         "fps": None,
@@ -155,8 +171,10 @@ def _chunks_as_they_arrive(resp: requests.Response):
         yield from resp.iter_content(chunk_size=1024)
 
 
-def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
-    """Read a multipart MJPEG stream for a few seconds and count frames."""
+def _probe_mjpeg(resp: requests.Response, started: float, min_height: int | None = None) -> dict:
+    """Read a multipart MJPEG stream for a few seconds and count frames.
+    With min_height, a stream whose first picture is smaller is left after
+    that picture: there's no need to measure its frame rate."""
     buf = b""
     frames = 0
     pictures = set()  # a frozen camera repeats the same picture
@@ -189,6 +207,10 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
                 first_frame_at = now
                 size = image_size(frame)
                 deadline = now + FPS_WINDOW
+                if size and min_height and size[1] < min_height:
+                    return {"status": "online", "kind": "mjpeg", "width": size[0], "height": size[1],
+                            "delay_s": 1.0, "first_frame_s": round(now - started, 2),
+                            "error": "smaller than wanted, so not tested further"}
         if deadline and time.monotonic() >= deadline:
             break
         if total > MAX_STREAM_BYTES or time.monotonic() - started > READ_TIMEOUT + FPS_WINDOW:
@@ -202,6 +224,7 @@ def _probe_mjpeg(resp: requests.Response, started: float) -> dict:
         "status": "online",
         "kind": "mjpeg",
         "live": True,
+        "delay_s": 1.0,  # each picture is sent as soon as it's taken
         "width": size[0] if size else None,
         "height": size[1] if size else None,
         "fps": round(fps, 2),
@@ -236,47 +259,149 @@ def _best_variant(master: str, base_url: str) -> str | None:
     return best
 
 
+_MAP_RE = re.compile(r'#EXT-X-MAP:.*?URI="([^"]+)"')
+
+
+def _newest_end(text: str) -> float | None:
+    """When the newest video ends (epoch seconds), if the server dates its
+    chunks (EXT-X-PROGRAM-DATE-TIME). A chunk's tags come before its address,
+    in any order; a dated chunk and every chunk after it add up from that
+    date: many servers (Flussonic, for one) date only the first chunk."""
+    start, after = None, 0.0
+    duration, dated = 0.0, None
+    for line in (l.strip() for l in text.splitlines()):
+        if line.startswith("#EXTINF:"):
+            m = _EXTINF_RE.match(line)
+            duration = float(m.group(1)) if m else 0.0
+        elif line.startswith("#EXT-X-PROGRAM-DATE-TIME:"):
+            try:
+                when = datetime.fromisoformat(line.split(":", 1)[1].strip().replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            dated = when.timestamp() if when.tzinfo is not None else None
+        elif line and not line.startswith("#"):  # a chunk's address closes its tags
+            if dated is not None:
+                start, after = dated, 0.0
+            if start is not None:
+                after += duration
+            duration, dated = 0.0, None
+    return start + after if start is not None else None
+
+
 def _media_state(text: str) -> dict:
     """What a media playlist says about its newest video."""
     target, sequence = _TARGET_RE.search(text), _SEQUENCE_RE.search(text)
-    durations, dates = _EXTINF_RE.findall(text), _PDT_RE.findall(text)
+    durations = _EXTINF_RE.findall(text)
     segments = [l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")]
+    init = _MAP_RE.search(text)
     return {
         "segment_s": float(target.group(1)) if target else None,
         "sequence": int(sequence.group(1)) if sequence else None,
         "last": segments[-1] if segments else None,
         "last_duration": float(durations[-1]) if durations else 0.0,
-        "last_date": dates[-1] if dates else None,
+        "newest_end": _newest_end(text),
+        "init": init.group(1) if init else None,  # fMP4 streams: the chunk's header lives here
         "ended": "#EXT-X-ENDLIST" in text,
     }
 
 
+def _cors_ok(headers) -> bool:
+    allowed = (headers.get("Access-Control-Allow-Origin") or "").strip()
+    return allowed == "*" or allowed == MAP_ORIGIN
+
+
 def _age_of_newest(state: dict) -> float | None:
-    """Seconds since the newest video ended, when the server says when it was
-    filmed (EXT-X-PROGRAM-DATE-TIME). Most servers don't."""
-    if not state["last_date"]:
-        return None
-    try:
-        filmed = datetime.fromisoformat(state["last_date"].replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if filmed.tzinfo is None:
-        return None
-    return time.time() - (filmed.timestamp() + state["last_duration"])
+    """Seconds since the newest video ended, when the server dates its
+    chunks. Many servers don't."""
+    return time.time() - state["newest_end"] if state["newest_end"] is not None else None
+
+
+def _get(url: str, limit: int = 500_000, timed: bool = False):
+    """GET as the map's page would (with its Origin), returning the final URL,
+    up to `limit` bytes of the body, and the response headers. With timed,
+    also the seconds the body took to arrive (connection setup excluded: a
+    player reuses its connection from chunk to chunk)."""
+    resp = session.get(url, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                       headers={"Origin": MAP_ORIGIN})
+    with resp:
+        resp.raise_for_status()
+        t = time.monotonic()
+        body = resp.raw.read(limit, decode_content=True)
+        took = time.monotonic() - t
+    return (resp.url, body, resp.headers, took) if timed else (resp.url, body, resp.headers)
 
 
 def _get_text(url: str) -> tuple[str, str]:
-    resp = session.get(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
-    resp.raise_for_status()
-    return resp.url, resp.content[:500_000].decode("utf-8", "ignore")
+    final, body, _ = _get(url)
+    return final, body.decode("utf-8", "ignore")
 
 
-def _probe_hls(text: str, url: str, started: float) -> dict:
+# The start of a chunk is enough to read its picture size: HLS chunks open
+# with the stream's parameters. If they aren't there, the whole chunk is read.
+CHUNK_HEAD_BYTES = 150_000
+
+
+def _measure_chunk(base_url: str, state: dict, min_height: int | None = None) -> dict:
+    """Read the newest chunk's real picture size and codec (playlists often
+    don't say, or say the wrong thing) from its first few kilobytes.
+
+    min_height: if the picture is at least this tall (or its size can't be
+    read from the start), download the whole chunk too, for the frame rate
+    and download speed. None reads the start only, which keeps a big scan
+    from downloading gigabytes."""
+    if not state["last"]:
+        return {}
+    url = urljoin(base_url, state["last"])
+    try:
+        init = b""
+        if state["init"]:
+            _, init, _ = _get(urljoin(base_url, state["init"]), limit=2_000_000)
+        _, head, headers = _get(url, limit=CHUNK_HEAD_BYTES)
+        info = chunk_info(head, init)
+        if info["height"] and (min_height is None or info["height"] < min_height):
+            return {"codec": info["codec"], "width": info["width"], "height": info["height"],
+                    "chunk_cors": _cors_ok(headers)}
+        _, chunk, headers, took = _get(url, limit=MAX_CHUNK_BYTES, timed=True)
+    except requests.RequestException as e:
+        return {"chunk_error": type(e).__name__}
+    info = chunk_info(chunk, init)
+    out = {"codec": info["codec"], "chunk_download_s": round(took, 2), "chunk_cors": _cors_ok(headers)}
+    if info["width"]:
+        out.update(width=info["width"], height=info["height"])
+    if info["frames"] and state["last_duration"] and len(chunk) < MAX_CHUNK_BYTES:
+        out["fps"] = round(info["frames"] / state["last_duration"], 1)
+    return out
+
+
+def hls_delay(segment_s: float, newest_age_s: float | None = None, download_s: float | None = None) -> float:
+    """About how far behind real time the map plays an HLS stream.
+
+    The map's player sits one chunk plus PLAYER_MARGIN_S behind the newest
+    video, and the newest video is itself about half a chunk old on average
+    (or as old as the server says when it dates its chunks, plus the few
+    seconds the camera takes to get its video to the server, which is when
+    the date is stamped). A chunk that takes longer to download than to play
+    makes the player fall further behind. (One chunk fetched on a fresh
+    connection downloads slower than a player's steady stream does, so
+    anything quicker than that is left alone.) Checked against cameras'
+    on-screen clocks: right to within a few seconds on servers that keep up.
+    """
+    if newest_age_s is not None and 0 <= newest_age_s < 120:
+        edge = newest_age_s + CAMERA_TO_SERVER_S
+    else:
+        edge = segment_s / 2 + 1
+    slow = max(0.0, (download_s or 0.0) - segment_s) * 2
+    return round(segment_s + PLAYER_MARGIN_S + edge + slow, 1)
+
+
+def _probe_hls(text: str, url: str, started: float, headers=None, min_height: int | None = None) -> dict:
     """Read an HLS playlist and note how live it is.
 
-    A master playlist lists each quality's resolution; ACE follows it to the
-    best quality's media playlist, which gives the chunk length and shows
-    whether the stream has ended (a finished recording, not live video).
+    A master playlist lists each quality; ACE follows it to the best one's
+    media playlist, which gives the chunk length and shows whether the stream
+    has ended (a finished recording, not live video). One chunk is downloaded
+    to read the real picture size, codec and frame rate, and every answer is
+    checked for the CORS permission a browser needs to play it in the map.
     main() reads the media playlist again a chunk later (recheck_hls) to make
     sure new video is still arriving.
     """
@@ -284,13 +409,11 @@ def _probe_hls(text: str, url: str, started: float) -> dict:
         return {"status": "unsupported", "error": "not a valid HLS playlist"}
     sizes = [(int(w), int(h)) for w, h in _RESOLUTION_RE.findall(text)]
     rates = [float(r) for r in _FRAMERATE_RE.findall(text)]
-    result = {"status": "online", "kind": "hls",
+    result = {"status": "online", "kind": "hls", "cors": _cors_ok(headers or {}),
               "first_frame_s": round(time.monotonic() - started, 2)}
     if sizes:
         w, h = max(sizes, key=lambda s: s[0] * s[1])
         result.update(width=w, height=h)
-    else:
-        result["error"] = "HLS playlist lists no resolution; size unknown"
     if rates:
         result["fps"] = round(max(rates), 2)
 
@@ -300,20 +423,29 @@ def _probe_hls(text: str, url: str, started: float) -> dict:
         if not variant:
             return {**result, "status": "unsupported", "error": "master playlist lists no streams"}
         try:
-            media_url, media = _get_text(variant)
+            media_url, body, media_headers = _get(variant)
         except requests.RequestException as e:
             return {**result, "status": "offline", "error": f"media playlist: {type(e).__name__}"}
+        media = body.decode("utf-8", "ignore")
+        result["cors"] = result["cors"] and _cors_ok(media_headers)
 
     state = _media_state(media)
     if state["ended"]:
         return {**result, "status": "recorded", "live": False,
                 "error": "a finished recording, not live video"}
+
+    chunk = _measure_chunk(media_url, state, min_height)
+    if "chunk_cors" in chunk:
+        result["cors"] = result["cors"] and chunk.pop("chunk_cors")
+    if chunk.get("chunk_error"):
+        result["error"] = f"couldn't download a chunk ({chunk.pop('chunk_error')})"
+    result.update(chunk)
+    if not result.get("height"):
+        result["error"] = result.get("error") or "picture size unknown"
+
     segment = state["segment_s"] or 6.0
-    # One chunk plus the player's margin; more if the server's newest video
-    # is already older than one chunk.
-    age = _age_of_newest(state)
-    late = max(0.0, age - segment) if age is not None else 0.0
-    result.update(segment_s=state["segment_s"], delay_s=round(segment + PLAYER_MARGIN_S + late, 1))
+    result.update(segment_s=state["segment_s"],
+                  delay_s=hls_delay(segment, _age_of_newest(state), result.get("chunk_download_s")))
     result["_recheck"] = {"url": media_url, "sequence": state["sequence"], "last": state["last"],
                           "at": time.monotonic(), "wait": min(segment + 2, HLS_RECHECK_MAX_S)}
     return result
@@ -328,11 +460,16 @@ def recheck_hls(r: dict) -> dict:
     wait = info["at"] + info["wait"] - time.monotonic()
     if wait > 0:
         time.sleep(wait)
-    try:
-        _, text = _get_text(info["url"])
-    except Exception as e:  # one bad stream must never stop the scan
-        r["error"] = f"second check failed ({type(e).__name__}); not confirmed live"
-        return r
+    text = None
+    for attempt in (1, 2):  # a far-away server can drop one request
+        try:
+            _, text = _get_text(info["url"])
+            break
+        except Exception as e:  # one bad stream must never stop the scan
+            if attempt == 2:
+                r["error"] = f"second check failed ({type(e).__name__}); not confirmed live"
+                return r
+            time.sleep(2)
     state = _media_state(text)
     moved = (state["last"] != info["last"]
              or (state["sequence"] or 0) > (info["sequence"] or 0))
@@ -352,11 +489,17 @@ _EMBED_RE = re.compile(
 )
 
 
-def probe_url(url: str, depth: int = 0) -> dict:
-    """Connect to one URL and work out what it serves."""
+def probe_url(url: str, depth: int = 0, min_height: int | None = None) -> dict:
+    """Connect to one URL and work out what it serves.
+
+    min_height (src.find sets it): stop measuring as soon as a video's picture
+    turns out smaller than this; HLS video at least this sharp has a whole
+    chunk downloaded for its frame rate and download speed. Without it, HLS
+    picture size and codec are read from the first part of a chunk only."""
     started = time.monotonic()
     try:
-        resp = session.get(url, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        resp = session.get(url, stream=True, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                           headers={"Origin": MAP_ORIGIN})
     except requests.exceptions.SSLError as e:
         return {"status": "tls-error", "error": str(e)[:160]}
     except requests.RequestException as e:
@@ -369,7 +512,7 @@ def probe_url(url: str, depth: int = 0) -> dict:
         ctype = resp.headers.get("Content-Type", "").lower()
 
         if "multipart" in ctype or "mjpeg" in ctype or "mjpg" in ctype:
-            return _probe_mjpeg(resp, started)
+            return _probe_mjpeg(resp, started, min_height)
 
         if ctype.startswith("image/"):
             data = resp.raw.read(2_000_000, decode_content=True)
@@ -385,7 +528,7 @@ def probe_url(url: str, depth: int = 0) -> dict:
 
         if "mpegurl" in ctype or url.lower().split("?")[0].endswith(".m3u8"):
             text = resp.raw.read(200_000, decode_content=True).decode("utf-8", "ignore")
-            return _probe_hls(text, resp.url, started)
+            return _probe_hls(text, resp.url, started, resp.headers, min_height)
 
         if "html" in ctype and depth == 0:
             # A web page that wraps the camera: look for the real feed inside it.
@@ -394,7 +537,7 @@ def probe_url(url: str, depth: int = 0) -> dict:
                 inner = urljoin(url, match.group(1))
                 if inner == url:
                     continue
-                result = probe_url(inner, depth=1)
+                result = probe_url(inner, depth=1, min_height=min_height)
                 if result.get("status") == "online":
                     result["probed_url"] = inner
                     return result
