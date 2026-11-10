@@ -27,7 +27,11 @@ newest video instead of hls.js's default three chunks.
 Clicking a pin opens the camera in a viewer that takes half the screen.
 By default only cameras measured at 720p or better are shown (needs a scan),
 plus cameras whose size is unknown. Use the sidebar to change that, or
---min-height 0 to start with everything. Nothing is recorded.
+--min-height 0 to start with everything.
+
+Nothing is recorded unless you use Rewind (src/record.py) in the viewer:
+then ACE keeps the last 30 or 60 minutes of that camera on this computer
+while the map runs, and deletes it when you stop it or quit.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ import argparse
 import functools
 import http.server
 import json
+import signal
 import socketserver
 import webbrowser
 from datetime import datetime
@@ -137,24 +142,89 @@ def build(output: Path = OUTPUT_PATH, min_height: int | None = None, live_only: 
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    """Serves the map's folder, plus a small API for Rewind (src/record.py).
+
+    The API only answers requests carrying an X-ACE header. Browsers won't
+    let another website add that header to a request to this server, so
+    only the map itself can start or stop recordings."""
+
+    recorder = None  # set by serve()
+
     def log_message(self, *args):  # keep the terminal readable
         pass
 
+    def end_headers(self):
+        if self.path.split("?")[0].endswith(".m3u8"):
+            self.send_header("Cache-Control", "no-store")  # a recording's playlist keeps changing
+        super().end_headers()
 
-def serve(path: Path, port: int, open_browser: bool) -> None:
-    """Serve only the folder the map is in, on this computer only."""
+    def _json(self, status: int, body: dict) -> None:
+        data = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _api(self) -> bool:
+        if not self.path.startswith("/api/"):
+            return False
+        if self.headers.get("X-ACE") != "1" or not self.recorder:
+            self._json(403, {"error": "not available"})
+            return True
+        if self.command == "GET" and self.path == "/api/recordings":
+            self._json(200, self.recorder.status())
+            return True
+        if self.command == "POST" and self.path in ("/api/record/start", "/api/record/stop"):
+            try:
+                length = min(int(self.headers.get("Content-Length") or 0), 10_000)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                self._json(400, {"error": "bad request"})
+                return True
+            if self.path.endswith("start"):
+                self._json(200, self.recorder.start(str(body.get("id")), body.get("minutes") or 30))
+            else:
+                self._json(200, self.recorder.stop(str(body.get("id"))))
+            return True
+        self._json(404, {"error": "unknown"})
+        return True
+
+    def do_GET(self):
+        if not self._api():
+            super().do_GET()
+
+    def do_POST(self):
+        if not self._api():
+            self._json(404, {"error": "unknown"})
+
+
+def serve(path: Path, port: int, open_browser: bool, cameras: list[dict] | None = None) -> None:
+    """Serve only the folder the map is in, on this computer only. While it
+    runs, the map can keep a rolling recording of chosen cameras (Rewind);
+    they're all deleted when you stop it."""
+    from src.record import Recorder
+
     folder = path.resolve().parent
-    handler = functools.partial(_QuietHandler, directory=str(folder))
+    recorder = Recorder({c["id"]: c for c in cameras or []})
+    handler = functools.partial(type("_Handler", (_QuietHandler,), {"recorder": recorder}),
+                                directory=str(folder))
     socketserver.TCPServer.allow_reuse_address = True
+    # Being told to stop (not just Ctrl+C) must also stop the recordings.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     with socketserver.ThreadingTCPServer(("127.0.0.1", port), handler) as httpd:
         url = f"http://localhost:{port}/{path.name}"
         print(f"Serving the map at {url}  (Ctrl+C to stop)")
+        if not recorder.ffmpeg:
+            print("  Rewind is off: it needs ffmpeg (pip install imageio-ffmpeg).")
         if open_browser:
             webbrowser.open(url)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\nStopped.")
+        finally:
+            recorder.stop_all()  # recordings never outlive the map
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -192,7 +262,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.no_serve:
         webbrowser.open(path.resolve().as_uri())
         return
-    serve(path, args.port, open_browser=True)
+    serve(path, args.port, open_browser=True,
+          cameras=_proper_records()[0] if proper else _all_records())
 
 
 if __name__ == "__main__":

@@ -49,6 +49,16 @@
     border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
   .v-nav button:hover { border-color: var(--accent); }
 
+  /* Rewind: a rolling recording of the camera, kept on this computer. */
+  .v-rewind { padding: 10px 16px; border-top: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+  .v-rewind button, .v-rewind select { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; width: auto; }
+  .v-rewind button:hover { border-color: var(--accent); }
+  .v-rewind button.on { border-color: #ff5c5c; color: #ffb3b3; }
+  .v-rewind input[type=range] { flex: 1 1 180px; accent-color: var(--accent); }
+  .v-rewind .muted { color: var(--muted); }
+
   header { padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
   h1 { margin: 0; font-size: 16px; letter-spacing: .08em; }
   h1 span { color: var(--muted); font-weight: 400; letter-spacing: 0; }
@@ -136,12 +146,17 @@
       <h2>Sources</h2>
       <div id="sources"></div>
 
+      <div id="keptWrap" hidden>
+        <h2>Kept for rewind</h2>
+        <ul class="best" id="kept"></ul>
+      </div>
+
       <div id="bestWrap" hidden>
         <h2>Sharpest cameras</h2>
         <ul class="best" id="best"></ul>
       </div>
     </div>
-    <footer>__FOOTNOTE__ View only — nothing is recorded.<br>Generated <span id="gen"></span></footer>
+    <footer>__FOOTNOTE__ Nothing is recorded unless you use Rewind on a camera: then only its last 30–60 minutes, on this computer, deleted when you stop.<br>Generated <span id="gen"></span></footer>
   </aside>
 
   <div id="map"></div>
@@ -155,6 +170,7 @@
       <button class="v-close" id="vClose" title="Close (Esc)" aria-label="Close viewer">×</button>
     </div>
     <div class="v-stage" id="vStage"></div>
+    <div class="v-rewind" id="vRewind" hidden></div>
     <div class="v-foot">
       <span id="vTags" style="display:contents"></span>
       <span class="v-nav"><button id="vPrev" title="Previous camera ( [ )">‹ Prev</button><button id="vNext" title="Next camera ( ] )">Next ›</button></span>
@@ -253,10 +269,12 @@ let visibleList = [];
 const stage = document.getElementById("vStage");
 
 let hls = null;
+let rewinding = false;  // playing ACE's own recording instead of the live camera
 let refreshTimer = null;
 let delayTimer = null;
 
 function stopFeed() {
+  rewinding = false;
   clearInterval(refreshTimer); refreshTimer = null;
   clearInterval(delayTimer); delayTimer = null;
   if (hls) { hls.destroy(); hls = null; }
@@ -317,6 +335,177 @@ function playHls(c) {
     stage.innerHTML = `<div class="v-msg">This browser can't play HLS video. Use “Open source”.</div>`;
   }
 }
+
+// ---------- Rewind ----------
+// Camera servers keep only their last few seconds, so ACE can keep its own
+// rolling recording of a camera (src/record.py, run by the map's local
+// server). Only while the map runs; deleted when you stop or quit.
+const rec = { api: false, ffmpeg: false, maxMinutes: 60, list: {} };
+
+async function recApi(path, body) {
+  const opt = { headers: { "X-ACE": "1" } };
+  if (body) { opt.method = "POST"; opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function refreshRecordings() {
+  if (location.protocol === "file:") return;
+  try {
+    const s = await recApi("/api/recordings");
+    Object.assign(rec, { api: true, ffmpeg: s.ffmpeg, maxMinutes: s.max_minutes,
+      list: Object.fromEntries(s.recordings.map(r => [r.id, r])) });
+  } catch (e) { rec.api = false; }
+  renderRewind();
+  renderKept();
+}
+
+function canKeep(c) {
+  return c && (c.url_type === "hls" || c.url_type === "stream") && c.url_type !== "youtube";
+}
+
+function fmtAgo(s) {
+  s = Math.max(0, Math.round(s));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
+}
+
+function renderKept() {
+  const items = Object.values(rec.list);
+  document.getElementById("keptWrap").hidden = !items.length;
+  document.getElementById("kept").innerHTML = items.map(r => {
+    const c = CAMERAS.find(x => x.id === r.id);
+    return `<li data-id="${esc(r.id)}"><span>${esc(c ? title(c) : r.id)}</span> <span class="n">${fmtAgo(r.kept_s)}</span></li>`;
+  }).join("");
+  document.querySelectorAll("#kept li").forEach(li => li.onclick = () => {
+    const c = CAMERAS.find(x => x.id === li.dataset.id);
+    if (c) openViewer(c);
+  });
+}
+
+function renderRewind() {
+  const bar = document.getElementById("vRewind");
+  const c = current;
+  if (!rec.api || !canKeep(c)) { bar.hidden = true; return; }
+  bar.hidden = false;
+  if (!rec.ffmpeg) {
+    bar.innerHTML = `<span class="muted">Rewind needs ffmpeg: run <code>pip install imageio-ffmpeg</code>, then restart the map.</span>`;
+    return;
+  }
+  const r = rec.list[c.id];
+  if (!r) {
+    if (bar.dataset.state === "off:" + c.id) return;  // keep the user's menu choice
+    bar.dataset.state = "off:" + c.id;
+    bar.innerHTML = `<span class="muted">Rewind:</span>
+      <button id="rwStart">⏺ Keep the last</button>
+      <select id="rwMinutes"><option value="30">30 min</option><option value="60">60 min</option></select>
+      <span class="muted">Recorded on this computer while the map is open, then deleted.</span>`;
+    document.getElementById("rwStart").onclick = async () => {
+      const minutes = +document.getElementById("rwMinutes").value;
+      const res = await recApi("/api/record/start", { id: c.id, minutes });
+      if (res.error) { alertBar(res.error); return; }
+      bar.dataset.state = ""; refreshRecordings();
+    };
+    return;
+  }
+  const kept = r.kept_s || 0;
+  if (bar.dataset.state !== "on:" + c.id) {
+    bar.dataset.state = "on:" + c.id;
+    bar.innerHTML = `<button class="on" id="rwStop" title="Stop and delete this recording">⏺ Keeping · stop</button>
+      <button id="rwBack5">−5 min</button><button id="rwBack1">−1 min</button>
+      <input type="range" id="rwSlider" min="0" max="1" step="1" value="1" aria-label="How far back to watch">
+      <button id="rwLive">Live</button>
+      <span class="muted" id="rwInfo"></span>`;
+    document.getElementById("rwStop").onclick = async () => {
+      await recApi("/api/record/stop", { id: c.id });
+      if (rewinding) showFeed(c), resetDelayTag(c);
+      bar.dataset.state = ""; refreshRecordings();
+    };
+    document.getElementById("rwLive").onclick = () => { if (rewinding) { showFeed(c); resetDelayTag(c); } renderRewind(); };
+    document.getElementById("rwBack1").onclick = () => rewindBy(c, 60);
+    document.getElementById("rwBack5").onclick = () => rewindBy(c, 300);
+    document.getElementById("rwSlider").oninput = e => {
+      const back = +e.target.max - +e.target.value;
+      if (back <= 2 && !rewinding) return;
+      rewindTo(c, back);
+    };
+  }
+  const slider = document.getElementById("rwSlider");
+  if (!rewinding) {
+    slider.max = Math.max(1, kept); slider.value = slider.max;
+    document.getElementById("rwInfo").textContent = kept < 20 ? "starting…" : `${fmtAgo(kept)} kept`;
+  }
+}
+
+function alertBar(msg) {
+  const info = document.getElementById("rwInfo");
+  if (info) info.textContent = msg; else document.getElementById("vRewind").insertAdjacentHTML("beforeend", `<span class="muted"> ${esc(msg)}</span>`);
+}
+
+function resetDelayTag(c) {
+  const live = (c.q && c.q.delay_s) ? `● live · about ${Math.round(c.q.delay_s)} s behind` : "● live";
+  showDelay(c.url_type === "stream" ? "● live · real time" : live);
+}
+
+function recordingEdge(video) {
+  return video.seekable.length ? [video.seekable.start(0), video.seekable.end(video.seekable.length - 1)] : null;
+}
+
+// Play ACE's recording `back` seconds before its newest moment.
+function rewindTo(c, back) {
+  const r = rec.list[c.id];
+  if (!r) return;
+  if (rewinding && hls) {
+    const video = stage.querySelector("video");
+    const edge = recordingEdge(video);
+    if (edge) video.currentTime = Math.max(edge[0], edge[1] - back);
+    return;
+  }
+  stopFeed();
+  rewinding = true;
+  const video = document.createElement("video");
+  Object.assign(video, { muted: true, autoplay: true, playsInline: true, controls: true });
+  stage.appendChild(video);
+  // Plain playback of a long window: no jumping forward to the newest video.
+  hls = new Hls({ liveSyncDurationCount: 2, maxBufferLength: 20, liveDurationInfinity: true });
+  hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { stopFeed(); stage.innerHTML = `<div class="v-msg">The recording isn't ready yet. Give it a minute.</div>`; } });
+  hls.loadSource(r.playlist + "?t=" + Date.now());
+  hls.attachMedia(video);
+  video.addEventListener("loadedmetadata", () => {
+    const edge = recordingEdge(video);
+    if (edge) video.currentTime = Math.max(edge[0], edge[1] - back);
+  }, { once: true });
+  const player = hls;
+  delayTimer = setInterval(() => {
+    if (player !== hls) return;
+    const edge = recordingEdge(video);
+    const slider = document.getElementById("rwSlider");
+    if (edge && slider) {
+      slider.max = Math.max(1, Math.round(edge[1] - edge[0]));
+      slider.value = Math.round(video.currentTime - edge[0]);
+    }
+    const when = player.playingDate;
+    if (when) {
+      const ago = (Date.now() - when.getTime()) / 1000;
+      showDelay(`⏪ ${when.toLocaleTimeString()} · ${fmtAgo(ago)} ago`);
+      const info = document.getElementById("rwInfo");
+      if (info && edge) info.textContent = `watching ${fmtAgo(ago)} ago, of ${fmtAgo(edge[1] - edge[0])} kept`;
+    }
+  }, 1000);
+}
+
+function rewindBy(c, seconds) {
+  if (rewinding) {
+    const video = stage.querySelector("video");
+    const edge = recordingEdge(video);
+    if (edge) video.currentTime = Math.max(edge[0], video.currentTime - seconds);
+  } else {
+    rewindTo(c, seconds);
+  }
+}
+
+setInterval(refreshRecordings, 5000);
+refreshRecordings();
 
 // Singapore's images get a new URL every snapshot, so ask data.gov.sg for
 // the latest one (the API allows requests from any site). Results are shared
@@ -464,6 +653,7 @@ function openViewer(c) {
   document.getElementById("vDelay").hidden = !document.getElementById("vDelay").textContent;
 
   showFeed(c);
+  renderRewind();
 
   if (selectedRing) map.removeLayer(selectedRing);
   selectedRing = L.circleMarker([c.lat, c.lon], { radius: 12, weight: 3, color: "#fff", fill: false, interactive: false }).addTo(map);

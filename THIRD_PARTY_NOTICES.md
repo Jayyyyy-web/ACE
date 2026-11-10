@@ -90,7 +90,8 @@ SOFTWARE.
 
 - Source: cam.krk.ru (Krasnoyarsk, Russia; run by Orion Telecom), listed by
   open-webcam-atlas as CC BY-SA. Attribution: "Cameras: cam.krk.ru". ACE
-  only links to the streams and stores no footage. The site's robots.txt
+  only links to the streams; it stores footage only if you use Rewind on a camera
+  (the last hour at most, on your own computer, deleted when you stop). The site's robots.txt
   asks automated tools not to use its `/api/`, so ACE never calls it: the
   stream list comes from open-webcam-atlas, and the streams are played
   only where the stream server itself allows it.

@@ -2,13 +2,14 @@
 
 A personal project that finds **proper live cameras** (official public cameras whose video is live, sharp, smooth and close to real time), shows them on a map, and next uses computer vision to analyse traffic: vehicle and pedestrian counts, congestion, and unusual events.
 
-Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles.
+Scope: anonymous, aggregate analysis only. No identification or tracking of individual people or vehicles. Nothing is recorded unless you switch on Rewind for a camera (below).
 
 ## Structure
 
 - `src/find.py` – finds and tests the proper cameras
 - `src/feeds/` – camera list fetching, quality testing, shared formats
 - `src/map.py` – builds and serves the camera map
+- `src/record.py` – Rewind: rolling recordings of chosen cameras
 - `src/vision/` – object detection on camera frames
 - `src/api/` – backend API
 - `frontend/` – map template
@@ -19,6 +20,7 @@ Scope: anonymous, aggregate analysis only. No identification or tracking of indi
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install requests python-dotenv certifi   # enough for fetching, scanning and the map
+pip install imageio-ffmpeg                    # optional: Rewind (brings its own ffmpeg)
 pip install -r requirements.txt              # everything (large: includes PyTorch)
 ```
 
@@ -30,6 +32,8 @@ No account or API key needed.
 python -m src.find     # find and test the proper cameras (about 10-20 minutes the first time)
 python -m src.map      # see them on the map
 ```
+
+In the map's viewer, **Rewind** can keep the last 30–60 minutes of a camera so you can go back in time; see [Rewind](#rewind-look-back-up-to-an-hour).
 
 **What "proper" means.** Every camera is tested from your own computer before it's kept:
 
@@ -169,6 +173,16 @@ Click a pin and the camera opens in a viewer that takes half the screen (the bot
 
 **Picture quality:** by default the map only shows cameras measured at 720p or better, so everything you open fills the viewer. This needs scan results. Cameras whose size is unknown (not scanned yet, or New Taipei's city viewers) are included unless you untick that option. Change the starting filter with `python -m src.map --min-height 1080` (or `480`, or `0` for everything).
 
+### Rewind: look back up to an hour
+
+Camera servers keep only their last 10–60 seconds, so there's nothing on their side to rewind into. Instead, while the map is open, click **⏺ Keep the last 30 min** (or 60) under a camera in the viewer. ACE then records that camera on your computer, keeping only the last 30 or 60 minutes: older video is deleted as new video arrives. Once it has a minute or two, use **−1 min**, **−5 min** or the slider to go back, and **Live** to return. The viewer shows the time you're watching, e.g. "⏪ 10:22:11 PM · 54 s ago", and **Kept for rewind** in the sidebar lists the cameras being kept.
+
+- Nothing is kept unless you click it, and at most 4 cameras at once (`MAX_CAMERAS` in `src/record.py`).
+- Recordings live in `data/recordings/` and are deleted when you click **stop** or quit the map (Ctrl+C or closing its window). Leftovers from a crash are deleted the next time the map starts.
+- It needs ffmpeg: `pip install imageio-ffmpeg`, or any ffmpeg on your PATH. HLS cameras are copied as they arrive, which needs almost no CPU; MJPEG cameras are converted to H.264 so they can be scrubbed. Some servers (Taichung's, for one) end every stream after about half a minute; ACE reconnects at once and joins the pieces.
+- Space: about 0.5–1 GB per camera per half hour at 1080p. Mind the space on your USB stick.
+- Only live camera video can be kept; YouTube never is. Like the rest of ACE, it's for looking back at traffic, not for identifying or following people, and recordings aren't for publishing.
+
 ### Check camera quality
 
 ```bash
@@ -261,6 +275,7 @@ See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for all licences and term
 - [x] Phase 1g: Taiwan HD: Taichung live video, Highway Bureau, Tourism Administration live cameras
 - [x] Phase 1h: live test (frozen and pre-recorded streams caught, HLS delay measured) and near-real-time HLS playback
 - [x] Phase 1i: restart from proper cameras: a finder that tests every camera (live, 720p+, smooth, close to real time, playable) and a map of only those; new sources Sejong (Korea) and Gdańsk (Poland)
+- [x] Phase 1j: Rewind: keep the last 30–60 minutes of chosen cameras and scrub back
 - [ ] Phase 2: run object detection on selected feeds and store counts
 - [ ] Phase 3: detect anomalies (sudden drops or spikes)
 - [ ] Phase 4: natural-language queries over the data
